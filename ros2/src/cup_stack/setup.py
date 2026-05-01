@@ -30,7 +30,7 @@ setup(
     zip_safe=True,
     maintainer="ssu",
     maintainer_email="ssu@todo.todo",
-    description="ROS 2 cup stacking tasks split from dsr_practice.",
+    description="ROS 2 speed stacking control tasks for a Doosan M0609 robot.",
     license="MIT",
     extras_require={
         "test": [
@@ -40,7 +40,11 @@ setup(
     entry_points={
         "console_scripts": [
             "cup_pyramid = cup_stack.nodes.cup_pyramid_node:main",
+            "cup_pyramid_select = "
+            "cup_stack.nodes.cup_pyramid_select_node:main",
             "cup_unstack = cup_stack.nodes.cup_unstack_node:main",
+            "cup_unstack_select = "
+            "cup_stack.nodes.cup_unstack_select_node:main",
         ],
     },
 )

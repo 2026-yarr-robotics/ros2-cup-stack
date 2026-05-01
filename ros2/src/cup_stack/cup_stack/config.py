@@ -44,6 +44,17 @@ class GripperConfig:
 
 
 @dataclass(frozen=True)
+class CameraConfig:
+    """Camera topics and hand-eye calibration config."""
+
+    camera_info_topic: str = "/camera/camera/color/camera_info"
+    color_topic: str = "/camera/camera/color/image_raw"
+    depth_topic: str = "/camera/camera/aligned_depth_to_color/image_raw"
+    handeye_file: str = "T_gripper2camera.npy"
+    depth_search_radius_px: int = 30
+
+
+@dataclass(frozen=True)
 class CupStackConfig:
     """Geometry and timing values for six-cup stacking."""
 

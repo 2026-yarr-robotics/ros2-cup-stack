@@ -19,16 +19,24 @@ class CupPyramidTask:
         self.config = config or CupStackConfig()
         self.logger = runtime.logger
 
-    def try_execute(self) -> bool:
+    def try_execute(
+        self,
+        pick_xy: tuple[float, float] | None = None,
+        move_home: bool = True,
+    ) -> bool:
         """Execute the full pyramid build task."""
 
         self.log_plan()
-        self.logger.info("[0] Moving HOME")
-        if not self.runtime.try_move_home():
-            return False
-        self.runtime.sleep(self.config.home_sleep_sec)
+        if move_home:
+            self.logger.info("[0] Moving HOME")
+            if not self.runtime.try_move_home():
+                return False
+            self.runtime.sleep(self.config.home_sleep_sec)
 
-        pick_x, pick_y = self.runtime.current_ee_xy()
+        if pick_xy is None:
+            pick_x, pick_y = self.runtime.current_ee_xy()
+        else:
+            pick_x, pick_y = pick_xy
         pyramid_cx = pick_x + self.config.place_x_offset
         pyramid_cy = pick_y
         target_x, target_y = pyramid_cx, pyramid_cy

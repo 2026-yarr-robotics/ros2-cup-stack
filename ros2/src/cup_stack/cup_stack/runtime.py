@@ -139,8 +139,8 @@ class CupStackRuntime:
         )
         return True
 
-    def current_ee_xy(self) -> tuple[float, float]:
-        """Return the current end-effector XY position in the base frame."""
+    def current_ee_matrix(self) -> np.ndarray:
+        """Return the current end-effector transform in the base frame."""
 
         monitor = self.robot.get_planning_scene_monitor()
         with monitor.read_only() as scene:
@@ -150,6 +150,12 @@ class CupStackRuntime:
                 ),
                 dtype=float,
             )
+        return transform
+
+    def current_ee_xy(self) -> tuple[float, float]:
+        """Return the current end-effector XY position in the base frame."""
+
+        transform = self.current_ee_matrix()
         return float(transform[0, 3]), float(transform[1, 3])
 
     def try_open_gripper(self, sleep_sec: float) -> bool:

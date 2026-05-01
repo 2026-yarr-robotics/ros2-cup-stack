@@ -18,12 +18,19 @@ class CupUnstackTask:
         self.config = config or CupStackConfig()
         self.logger = runtime.logger
 
-    def try_execute(self) -> bool:
+    def try_execute(
+        self,
+        pyramid_xy: tuple[float, float] | None = None,
+    ) -> bool:
         """Execute the full pyramid unstack task."""
 
         self.log_plan()
-        self.logger.info("[0] Reading current FK from pyramid center")
-        pyramid_cx, pyramid_cy = self.runtime.current_ee_xy()
+        if pyramid_xy is None:
+            self.logger.info("[0] Reading current FK from pyramid center")
+            pyramid_cx, pyramid_cy = self.runtime.current_ee_xy()
+        else:
+            pyramid_cx, pyramid_cy = pyramid_xy
+            self.logger.info("[0] Using selected pyramid center")
         nest_x = pyramid_cx - self.config.place_x_offset
         nest_y = pyramid_cy
         self.logger.info(
