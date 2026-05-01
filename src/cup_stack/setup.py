@@ -28,7 +28,7 @@ setup(
     maintainer="ssu",
     maintainer_email="ssu@todo.todo",
     description="ROS 2 cup stacking tasks split from dsr_practice.",
-    license="TODO: License declaration",
+    license="MIT",
     extras_require={
         "test": [
             "pytest",
