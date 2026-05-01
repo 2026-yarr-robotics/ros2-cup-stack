@@ -21,7 +21,10 @@ setup(
             "share/" + package_name + "/config",
             glob("config/*.yaml") + glob("config/*.npy"),
         ),
-        ("share/" + package_name, ["package.xml"]),
+        (
+            "share/" + package_name,
+            ["package.xml"] + glob("bringup_*.sh"),
+        ),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
