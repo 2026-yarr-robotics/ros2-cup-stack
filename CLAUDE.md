@@ -7,9 +7,9 @@ This file provides guidance to Claude Code when working in this repository.
 This is a ROS 2 Humble workspace for running human-like speed stacking with a
 Doosan M0609 collaborative robot and MoveIt 2.
 
-- `src/doosan-robot2/` — upstream Doosan Robotics driver stack, tracked as a
+- `ros2/src/doosan-robot2/` — upstream Doosan Robotics driver stack, tracked as a
   git submodule. Do not edit this directory unless explicitly requested.
-- `src/cup_stack/` — local application package for cup stacking control.
+- `ros2/src/cup_stack/` — local application package for cup stacking control.
 
 ## Workspace Setup
 
@@ -23,20 +23,20 @@ Install dependencies with `rosdep` from the workspace root when available:
 
 ```bash
 source /opt/ros/humble/setup.bash
-rosdep install -r --from-paths src --ignore-src --rosdistro humble -y
+rosdep install -r --from-paths ros2/src --ignore-src --rosdistro humble -y
 ```
 
 Build the workspace:
 
 ```bash
-./src/cup_stack/build_cup_stack.sh
-source install/setup.bash
+./ros2/src/cup_stack/build_cup_stack.sh
+source ros2/install/setup.bash
 ```
 
 For controller firmware 3.x, pass the CMake option through the build script:
 
 ```bash
-./src/cup_stack/build_cup_stack.sh --cmake-args -DDRCF_VER=3
+./ros2/src/cup_stack/build_cup_stack.sh --cmake-args -DDRCF_VER=3
 ```
 
 ## Running MoveIt Bringup
@@ -44,13 +44,13 @@ For controller firmware 3.x, pass the CMake option through the build script:
 Simulation / virtual mode:
 
 ```bash
-./src/cup_stack/bringup_sim.sh
+./ros2/src/cup_stack/bringup_sim.sh
 ```
 
 Real robot mode:
 
 ```bash
-./src/cup_stack/bringup_real.sh 192.168.1.100
+./ros2/src/cup_stack/bringup_real.sh 192.168.1.100
 ```
 
 Both scripts source `/opt/ros/humble/setup.bash` and then search upward from the
@@ -62,7 +62,7 @@ Open a second terminal after bringup:
 
 ```bash
 source /opt/ros/humble/setup.bash
-source install/setup.bash
+source ros2/install/setup.bash
 ros2 launch cup_stack cup_pyramid.launch.py nest_inc:=0.0127
 ros2 launch cup_stack cup_unstack.launch.py nest_inc:=0.0127
 ```
@@ -72,7 +72,7 @@ center, matching the final state of `cup_pyramid`.
 
 ## Architecture
 
-**Layer 1 — Doosan Driver** (`src/doosan-robot2/`):
+**Layer 1 — Doosan Driver** (`ros2/src/doosan-robot2/`):
 
 - `dsr_bringup2` — real/virtual/Gazebo/MoveIt launch files.
 - `dsr_msgs2` — Doosan-specific ROS 2 messages, services, and actions.
@@ -80,7 +80,7 @@ center, matching the final state of `cup_pyramid`.
 - `dsr_description2` — URDF/Xacro and meshes.
 - `dsr_moveit2/dsr_moveit_config_m0609` — MoveIt config for M0609.
 
-**Layer 2 — Application** (`src/cup_stack/`):
+**Layer 2 — Application** (`ros2/src/cup_stack/`):
 
 - `cup_stack/runtime.py` — MoveItPy runtime and gripper adapter.
 - `cup_stack/tasks/` — reusable task sequences.
@@ -106,7 +106,7 @@ Default planning values:
 Use fast syntax checks when ROS dependencies are not available:
 
 ```bash
-python3 -m compileall src/cup_stack
+python3 -m compileall ros2/src/cup_stack
 ```
 
 Use ament tests after dependencies are installed:

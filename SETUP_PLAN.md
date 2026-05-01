@@ -10,8 +10,8 @@ stack의 드라이버 패키지 접두어로 쓰인다. 예: `dsr_bringup2`,
 
 ## 1. 패키지 골격
 
-- 새 워크스페이스 폴더: `cup_stack/`
-- ROS 2 패키지 경로: `cup_stack/src/cup_stack`
+- 새 워크스페이스 폴더: `ros2/`
+- ROS 2 패키지 경로: `ros2/src/cup_stack`
 - 빌드 타입: `ament_python`
 - 실행 진입점:
   - `cup_pyramid`
@@ -46,7 +46,7 @@ ok = task.try_execute()
 ## 4. ROS 2 실행 방식
 
 ```bash
-cd /home/leo/development/ros2-cup-stack/cup_stack
+cd /home/leo/development/ros2-cup-stack/cup_stack/ros2
 colcon build --symlink-install
 source install/setup.bash
 ros2 launch cup_stack cup_pyramid.launch.py nest_inc:=0.0127
@@ -55,7 +55,7 @@ ros2 launch cup_stack cup_unstack.launch.py nest_inc:=0.0127
 
 ## 5. 검증 계획
 
-- Python syntax 검증: `python3 -m compileall src/cup_stack`
+- Python syntax 검증: `python3 -m compileall ros2/src/cup_stack`
 - ROS 2 빌드 검증: `colcon build --symlink-install`
 - 로봇 실행 전 확인:
   - Doosan bringup과 MoveIt config가 활성화되어 있는지 확인

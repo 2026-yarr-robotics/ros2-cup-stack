@@ -2,10 +2,10 @@
 
 ## Project Structure & Module Organization
 
-This repository is a ROS 2 `ament_python` package for the `cup_stack` control
-layer. Source code lives under `src/cup_stack/cup_stack/`.
+This repository contains a standalone ROS 2 workspace under `ros2/`. The
+application source code lives under `ros2/src/cup_stack/cup_stack/`.
 
-- `src/doosan-robot2/`: upstream Doosan Robotics driver stack submodule.
+- `ros2/src/doosan-robot2/`: upstream Doosan Robotics driver stack submodule.
 - `config/`: MoveItPy configuration, including `moveit_py.yaml`.
 - `cup_stack/config.py`: robot frames, gripper settings, and cup geometry.
 - `cup_stack/geometry.py`: pose and orientation helpers.
@@ -23,6 +23,7 @@ Run commands from the repository root unless noted.
 
 ```bash
 git submodule update --init --recursive
+cd ros2
 colcon build --symlink-install
 ```
 
@@ -30,7 +31,7 @@ Initializes the Doosan driver submodule and builds the workspace, creating
 local `install/`, `build/`, and `log/` directories.
 
 ```bash
-source install/setup.bash
+source ros2/install/setup.bash
 ros2 launch cup_stack cup_pyramid.launch.py nest_inc:=0.0127
 ros2 launch cup_stack cup_unstack.launch.py nest_inc:=0.0127
 ```
@@ -39,7 +40,7 @@ Runs the pyramid build and restore tasks after the Doosan MoveIt bringup is
 already active.
 
 ```bash
-python3 -m compileall src/cup_stack
+python3 -m compileall ros2/src/cup_stack
 ```
 
 Performs a fast Python syntax check.
@@ -56,7 +57,7 @@ return `bool`. Keep ROS executable wrappers thin; put shared behavior in
 
 The package includes standard ament lint tests: `ament_flake8`,
 `ament_pep257`, and `ament_copyright`. Add functional tests under
-`src/cup_stack/test/` when behavior can be verified without robot hardware.
+`ros2/src/cup_stack/test/` when behavior can be verified without robot hardware.
 Name tests `test_*.py`. Before committing, run at least the compile check.
 
 ## Commit & Pull Request Guidelines
