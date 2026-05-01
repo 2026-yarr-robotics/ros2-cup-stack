@@ -4,20 +4,30 @@
 set -e
 
 ROS_DISTRO=${ROS_DISTRO:-humble}
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
-source_if_exists() {
-    local setup_file="$1"
-    if [ -f "$setup_file" ]; then
-        # shellcheck source=/dev/null
-        source "$setup_file"
-    fi
+find_workspace_setup() {
+    local dir="$SCRIPT_DIR"
+    while [ "$dir" != "/" ]; do
+        if [ -f "$dir/install/setup.bash" ]; then
+            echo "$dir/install/setup.bash"
+            return 0
+        fi
+        dir=$(dirname "$dir")
+    done
+    return 1
 }
 
 # shellcheck source=/dev/null
 source "/opt/ros/${ROS_DISTRO}/setup.bash"
-source_if_exists "/home/ssu/ws_moveit/install/setup.bash"
-source_if_exists "/home/ssu/ros2_ws/install/setup.bash"
-source_if_exists "/home/ssu/install/setup.bash"
+
+WORKSPACE_SETUP=$(find_workspace_setup || true)
+if [ -n "$WORKSPACE_SETUP" ]; then
+    # shellcheck source=/dev/null
+    source "$WORKSPACE_SETUP"
+else
+    echo "[WARN] workspace install/setup.bash not found. Run colcon build first."
+fi
 
 echo "[SIM] DSR M0609 MoveIt bringup (mode=virtual)"
 

@@ -23,7 +23,7 @@ setup(
         ),
         (
             "share/" + package_name,
-            ["package.xml"] + glob("bringup_*.sh"),
+            ["package.xml"] + glob("bringup_*.sh") + glob("build_*.sh"),
         ),
     ],
     install_requires=["setuptools"],

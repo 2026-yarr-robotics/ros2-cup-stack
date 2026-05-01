@@ -16,6 +16,7 @@
 
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>dsr_bringup2</exec_depend>
   <exec_depend>dsr_moveit_config_m0609</exec_depend>
   <exec_depend>moveit_configs_utils</exec_depend>
   <exec_depend>python3-numpy</exec_depend>

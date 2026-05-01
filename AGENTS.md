@@ -5,6 +5,7 @@
 This repository is a ROS 2 `ament_python` package for the `cup_stack` control
 layer. Source code lives under `src/cup_stack/cup_stack/`.
 
+- `src/doosan-robot2/`: upstream Doosan Robotics driver stack submodule.
 - `config/`: MoveItPy configuration, including `moveit_py.yaml`.
 - `cup_stack/config.py`: robot frames, gripper settings, and cup geometry.
 - `cup_stack/geometry.py`: pose and orientation helpers.
@@ -21,11 +22,12 @@ layer. Source code lives under `src/cup_stack/cup_stack/`.
 Run commands from the repository root unless noted.
 
 ```bash
+git submodule update --init --recursive
 colcon build --symlink-install
 ```
 
-Builds the ROS 2 package and creates local `install/`, `build/`, and `log/`
-directories.
+Initializes the Doosan driver submodule and builds the workspace, creating
+local `install/`, `build/`, and `log/` directories.
 
 ```bash
 source install/setup.bash

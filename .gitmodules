@@ -1,0 +1,3 @@
+[submodule "src/doosan-robot2"]
+	path = src/doosan-robot2
+	url = https://github.com/doosan-robotics/doosan-robot2.git

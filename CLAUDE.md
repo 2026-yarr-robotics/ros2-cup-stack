@@ -1,142 +1,117 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working in this repository.
 
 ## Overview
 
-This is a ROS2 Humble workspace for controlling a **Doosan M0609 collaborative robot** with MoveIt2 motion planning. The workspace contains:
+This is a ROS 2 Humble workspace for running human-like speed stacking with a
+Doosan M0609 collaborative robot and MoveIt 2.
 
-- `src/doosan-robot2/` — upstream Doosan driver (git submodule, do not modify)
-- `src/dsr_practice/` — local application package for custom pick-and-place and motion demos
+- `src/doosan-robot2/` — upstream Doosan Robotics driver stack, tracked as a
+  git submodule. Do not edit this directory unless explicitly requested.
+- `src/cup_stack/` — local application package for cup stacking control.
 
-## Environment Setup
+## Workspace Setup
 
-All terminals must source these in order before running ROS2 commands:
+After cloning, initialize the Doosan driver submodule:
+
+```bash
+git submodule update --init --recursive
+```
+
+Install dependencies with `rosdep` from the workspace root when available:
 
 ```bash
 source /opt/ros/humble/setup.bash
-source /home/ssu/ws_moveit/install/setup.bash
-source /home/ssu/ros2_ws/install/setup.bash
-source /home/ssu/install/setup.bash
+rosdep install -r --from-paths src --ignore-src --rosdistro humble -y
 ```
 
-## Build Commands
+Build the workspace:
 
 ```bash
-# Build entire workspace (from /home/ssu/ros2_ws)
-colcon build
-
-# Build only the local practice package (much faster)
-colcon build --packages-select dsr_practice
-
-# Build Doosan driver for controller v3.x firmware
-colcon build --cmake-args -DDRCF_VER=3
+./src/cup_stack/build_cup_stack.sh
+source install/setup.bash
 ```
 
-After rebuilding `dsr_practice`, re-source the workspace (`source install/setup.bash`) since it is an ament_python package.
-
-## Running the Robot
-
-**Simulation (virtual mode)** — starts the Doosan emulator + MoveIt2 + RViz:
-```bash
-cd /home/ssu/ros2_ws/src/dsr_practice
-./bringup_sim.sh
-```
-
-**Real robot** — connects to physical robot over Ethernet:
-```bash
-cd /home/ssu/ros2_ws/src/dsr_practice
-./bringup_real.sh [ROBOT_IP]   # default IP: 192.168.137.50
-```
-
-## Launching Applications (Terminal 2, after bringup)
+For controller firmware 3.x, pass the CMake option through the build script:
 
 ```bash
-ros2 launch dsr_practice pick_and_place.launch.py
-ros2 launch dsr_practice keyboard_teleop.launch.py
-ros2 launch dsr_practice mp_basic.launch.py
-ros2 launch dsr_practice mp_waypoint.launch.py
-ros2 launch dsr_practice mp_waypoint_pilz.launch.py
-ros2 launch dsr_practice collision_obstacle.launch.py
+./src/cup_stack/build_cup_stack.sh --cmake-args -DDRCF_VER=3
 ```
 
-## Running Tests
+## Running MoveIt Bringup
+
+Simulation / virtual mode:
 
 ```bash
-colcon test --packages-select dsr_practice
-colcon test-result --verbose
+./src/cup_stack/bringup_sim.sh
 ```
 
-Tests cover copyright, flake8 style, and pep257 docstrings. There are no functional/integration tests yet.
+Real robot mode:
+
+```bash
+./src/cup_stack/bringup_real.sh 192.168.1.100
+```
+
+Both scripts source `/opt/ros/humble/setup.bash` and then search upward from the
+script path for this workspace's `install/setup.bash`.
+
+## Running Cup Stack Tasks
+
+Open a second terminal after bringup:
+
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 launch cup_stack cup_pyramid.launch.py nest_inc:=0.0127
+ros2 launch cup_stack cup_unstack.launch.py nest_inc:=0.0127
+```
+
+`cup_unstack` assumes the current end-effector XY position is the pyramid
+center, matching the final state of `cup_pyramid`.
 
 ## Architecture
 
-### Two-Layer Design
+**Layer 1 — Doosan Driver** (`src/doosan-robot2/`):
 
-**Layer 1 — Doosan Driver** (`src/doosan-robot2/`, upstream, read-only):
-- `dsr_msgs2` — all custom ROS2 message/service/action definitions (~70 services)
-- `dsr_hardware2` — ros2_control `HardwareInterface` communicating via DRFL C++ library
-- `dsr_controller2` — joint trajectory controller + state broadcaster
-- `dsr_bringup2` — launch files for real/virtual/Gazebo/MuJoCo/MoveIt modes
-- `dsr_description2` — URDF/XACRO + mesh models for all Doosan robot variants
-- `dsr_moveit_config_m0609` — MoveIt2 SRDF, kinematics, joint limits, planner configs
+- `dsr_bringup2` — real/virtual/Gazebo/MoveIt launch files.
+- `dsr_msgs2` — Doosan-specific ROS 2 messages, services, and actions.
+- `dsr_hardware2`, `dsr_controller2` — ros2_control hardware and controllers.
+- `dsr_description2` — URDF/Xacro and meshes.
+- `dsr_moveit2/dsr_moveit_config_m0609` — MoveIt config for M0609.
 
-**Layer 2 — Application** (`src/dsr_practice/`, local development):
-- Python nodes using `moveit.planning.MoveItPy` for all motion
-- `onrobot.py` — Modbus TCP driver for OnRobot RG2/RG6 gripper (IP `192.168.1.1:502`)
-- All nodes load `config/moveit_py.yaml` via their launch files
+**Layer 2 — Application** (`src/cup_stack/`):
 
-### Motion Planning Pattern
+- `cup_stack/runtime.py` — MoveItPy runtime and gripper adapter.
+- `cup_stack/tasks/` — reusable task sequences.
+- `cup_stack/nodes/` — thin ROS 2 executable wrappers.
+- `launch/` — MoveItPy parameter loading and task launch files.
+- `config/moveit_py.yaml` — MoveItPy planning scene and pipeline config.
 
-All motion nodes follow this pattern:
-```python
-robot = MoveItPy(node_name="moveit_py")
-arm = robot.get_planning_component("manipulator")  # group from SRDF
+## Motion Planning Pattern
 
-params = PlanRequestParameters(robot)
-params.planning_pipeline = "ompl"      # or "pilz_industrial_motion_planner"
-params.planner_id = "RRTConnectkConfigDefault"  # or "PTP", "LIN"
+Pose goals are created as `geometry_msgs/msg/PoseStamped` in `base_link` and
+planned for the `link_6` end-effector through MoveItPy. HOME moves use
+`moveit.core.robot_state.RobotState`.
 
-arm.set_start_state_to_current_state()
-arm.set_goal_state(pose_stamped_msg=pose_goal, pose_link="link_6")
-result = arm.plan(parameters=params)
-robot.execute(group_name="manipulator", robot_trajectory=result.trajectory, blocking=True)
-```
+Default planning values:
 
-### Planning Pipelines (defined in `config/moveit_py.yaml`)
-
-| Preset | Pipeline | Planner | Use case |
-|--------|----------|---------|----------|
-| `ompl_rrtc` | ompl | RRTConnect | Joint-space / home moves |
-| `pilz_lin` | pilz_industrial_motion_planner | PTP | Precise cartesian placement |
-| `ompl_rrt_star` | ompl | RRT* | Obstacle-dense environments |
-| `chomp` | chomp | CHOMP | Trajectory smoothing |
-
-### Frames & Geometry
-
-- Planning group name (SRDF): `manipulator`
+- Planning group: `manipulator`
 - Base frame: `base_link`
 - End-effector link: `link_6`
-- Home joints (deg): `[0, 0, 90, 0, 90, 0]`
-- Safe workspace (base_link): X ≥ 0, Y ∈ [-0.3, 0.3], Z ≥ 0.27 m
+- HOME joints: `[0, 0, 90, 0, 90, 90]` degrees
 
-### Gripper
+## Testing
 
-`onrobot.py` wraps a Modbus TCP client (`pymodbus`). Widths are in raw units (1/10 mm):
-- RG2: max width 1100 (110 mm), max force 400
-- RG6: max width 1600 (160 mm), max force 1200
+Use fast syntax checks when ROS dependencies are not available:
 
-`pick_and_place.py` auto-detects gripper presence; falls back to simulation-only mode if connection fails.
+```bash
+python3 -m compileall src/cup_stack
+```
 
-## Key Files
+Use ament tests after dependencies are installed:
 
-| File | Purpose |
-|------|---------|
-| `src/dsr_practice/dsr_practice/pick_and_place.py` | Full pick-and-place workflow (9-step) |
-| `src/dsr_practice/dsr_practice/keyboard_teleop.py` | Arrow-key IK teleoperation |
-| `src/dsr_practice/dsr_practice/onrobot.py` | OnRobot RG gripper Modbus driver |
-| `src/dsr_practice/config/moveit_py.yaml` | MoveItPy planner configuration |
-| `src/dsr_practice/bringup_sim.sh` | Start virtual robot + MoveIt |
-| `src/dsr_practice/bringup_real.sh` | Start real robot + MoveIt |
-| `src/doosan-robot2/dsr_msgs2/` | All ROS2 service/message definitions |
-| `src/doosan-robot2/dsr_bringup2/launch/` | Official bringup launch files |
+```bash
+colcon test --packages-select cup_stack
+colcon test-result --verbose
+```
