@@ -63,6 +63,13 @@ class RobotTopics:
     joint_states: str = "/joint_states"
 
 
+@dataclass(frozen=True)
+class ServicePorts:
+    robot: int = 8001
+    handineye: int = 8002
+    handtoeye: int = 8003
+
+
 @dataclass
 class AppSettings:
     server: ServerConfig = field(default_factory=ServerConfig)
@@ -70,3 +77,4 @@ class AppSettings:
     workspace: WorkspaceConfig = field(default_factory=WorkspaceConfig)
     cameras: CameraTopics = field(default_factory=CameraTopics)
     robot: RobotTopics = field(default_factory=RobotTopics)
+    ports: ServicePorts = field(default_factory=ServicePorts)

@@ -22,5 +22,11 @@ dev = [
     "pytest-asyncio>=0.23",
 ]
 
+[project.scripts]
+cup-server = "server.main:main"
+cup-robot = "server.entrypoints.robot:main"
+cup-handineye = "server.entrypoints.handineye:main"
+cup-handtoeye = "server.entrypoints.handtoeye:main"
+
 [tool.setuptools.packages.find]
 include = ["server*"]
