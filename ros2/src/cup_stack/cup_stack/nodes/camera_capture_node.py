@@ -2,6 +2,7 @@
 
 import datetime
 import os
+import subprocess
 import threading
 
 import cv2
@@ -35,7 +36,7 @@ def main(args=None):
 
     node.create_subscription(Image, config.color_topic, color_cb, 10)
 
-    save_dir = str(node.get_parameter("save_dir").value)
+    save_dir = os.path.expanduser(str(node.get_parameter("save_dir").value))
     os.makedirs(save_dir, exist_ok=True)
     node.get_logger().info(f"Saving captures to: {save_dir}")
     node.get_logger().info("Press [S] to capture, [ESC] to exit.")
@@ -64,6 +65,12 @@ def main(args=None):
                     cv2.imwrite(path, frame["color"])
                     count += 1
                     node.get_logger().info(f"Saved: {path}")
+                    subprocess.Popen(
+                        ["paplay",
+                         "/usr/share/sounds/freedesktop/stereo/camera-shutter.oga"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
     finally:
         cv2.destroyAllWindows()
         executor.shutdown()

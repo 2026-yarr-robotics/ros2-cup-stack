@@ -45,6 +45,7 @@ setup(
             "cup_unstack = cup_stack.nodes.cup_unstack_node:main",
             "cup_unstack_select = "
             "cup_stack.nodes.cup_unstack_select_node:main",
+            "camera_capture = cup_stack.nodes.camera_capture_node:main",
         ],
     },
 )
