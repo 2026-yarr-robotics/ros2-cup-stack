@@ -24,7 +24,7 @@ def main(args=None):
     try:
         nest_inc = float(node.get_parameter("nest_inc").value)
         runtime = CupStackRuntime(node, "cup_pyramid_select_moveit_py")
-        node.get_logger().info("[0] Moving HOME before camera selection")
+        node.get_logger().info("[0] Moving HOME")
         if not runtime.try_move_home():
             return
 
