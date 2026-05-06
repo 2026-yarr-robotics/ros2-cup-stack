@@ -1,10 +1,16 @@
-"""ROS 2 node: move robot end-effector to specified Cartesian position."""
+"""ROS 2 node: move robot end-effector + gripper control via ROS services."""
 
 import rclpy
-from cup_stack.config import MotionConfig
+from cup_stack.config import GripperConfig, MotionConfig
 from cup_stack.runtime import CupStackRuntime
 from cup_stack_interfaces.srv import MoveCartesian
 from rclpy.node import Node
+
+try:
+    from cup_stack_interfaces.srv import GripperControl
+    _GRIPPER_SRV_AVAILABLE = True
+except ImportError:
+    _GRIPPER_SRV_AVAILABLE = False
 
 
 def main(args=None):
@@ -67,16 +73,45 @@ def main(args=None):
 
         return response
 
-    # Create service
-    service = node.create_service(MoveCartesian, "/move_cartesian", handle_move_cartesian)
-    node.get_logger().info("move_cartesian service ready")
+    def handle_gripper_control(request: GripperControl.Request, response: GripperControl.Response):
+        cmd = request.command.strip().lower()
+        node.get_logger().info(f"Gripper command: {cmd}")
+        try:
+            if cmd == "open":
+                runtime.try_open_gripper(GripperConfig().open_sleep_sec)
+                response.success = True
+                response.message = "Gripper opened"
+            elif cmd == "close":
+                runtime.try_grip_cup(GripperConfig().grip_sleep_sec)
+                response.success = True
+                response.message = "Gripper closed"
+            else:
+                response.success = False
+                response.message = f"Unknown command: {cmd!r}. Use 'open' or 'close'."
+        except Exception as e:
+            response.success = False
+            response.message = str(e)
+            node.get_logger().error(f"Gripper failed: {e}")
+        return response
+
+    # Create services
+    svc_move = node.create_service(MoveCartesian, "/move_cartesian", handle_move_cartesian)
+    svc_grip = None
+    if _GRIPPER_SRV_AVAILABLE:
+        svc_grip = node.create_service(GripperControl, "/gripper_control", handle_gripper_control)
+        node.get_logger().info("move_cartesian + gripper_control services ready")
+    else:
+        node.get_logger().warn("GripperControl.srv not built — /gripper_control unavailable. Run colcon build.")
+        node.get_logger().info("move_cartesian service ready")
 
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        service.destroy()
+        svc_move.destroy()
+        if svc_grip:
+            svc_grip.destroy()
         node.destroy_node()
         rclpy.shutdown()
 
