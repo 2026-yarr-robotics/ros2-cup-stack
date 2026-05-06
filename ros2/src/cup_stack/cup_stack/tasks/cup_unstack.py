@@ -170,13 +170,13 @@ class CupUnstackTask:
         nest_y: float,
     ) -> bool:
         self.logger.info(
-            f"  [6] nest XY move ({nest_x:.3f},{nest_y:.3f}) @ SAFE_Z"
+            f"  [6] nest XY move ({nest_x:.3f},{nest_y:.3f}) @ PICK_SAFE_Z"
         )
         return self._require(
             self.runtime.try_move_to_pose(
                 nest_x,
                 nest_y,
-                self.config.safe_z,
+                self.config.pick_safe_z,
                 self.config.safe_z_min,
             ),
             6,
@@ -213,12 +213,12 @@ class CupUnstackTask:
         nest_x: float,
         nest_y: float,
     ) -> bool:
-        self.logger.info("  [9] lift -> SAFE_Z")
+        self.logger.info("  [9] lift -> PICK_SAFE_Z")
         return self._require(
             self.runtime.try_move_to_pose(
                 nest_x,
                 nest_y,
-                self.config.safe_z,
+                self.config.pick_safe_z,
                 self.config.safe_z_min,
             ),
             9,

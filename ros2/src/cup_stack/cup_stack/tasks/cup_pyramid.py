@@ -119,12 +119,12 @@ class CupPyramidTask:
         pick_y: float,
         pick_ori: dict[str, float],
     ) -> bool:
-        self.logger.info("  [1] pick XY move @ SAFE_Z")
+        self.logger.info("  [1] pick XY move @ PICK_SAFE_Z")
         return self._require(
             self.runtime.try_move_to_pose(
                 pick_x,
                 pick_y,
-                self.config.safe_z,
+                self.config.pick_safe_z,
                 self.config.safe_z_min,
                 ori=pick_ori,
             ),
@@ -166,12 +166,12 @@ class CupPyramidTask:
         pick_y: float,
         pick_ori: dict[str, float],
     ) -> bool:
-        self.logger.info("  [5] lift -> SAFE_Z")
+        self.logger.info("  [5] lift -> PICK_SAFE_Z")
         return self._require(
             self.runtime.try_move_to_pose(
                 pick_x,
                 pick_y,
-                self.config.safe_z,
+                self.config.pick_safe_z,
                 self.config.safe_z_min,
                 ori=pick_ori,
                 lin=True,
