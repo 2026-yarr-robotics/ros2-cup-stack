@@ -30,7 +30,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            DeclareLaunchArgument("nest_inc", default_value="0.0147"),
+            DeclareLaunchArgument("nest_inc", default_value="0.0247"),
             Node(
                 package="cup_stack",
                 executable="cup_pyramid_select",

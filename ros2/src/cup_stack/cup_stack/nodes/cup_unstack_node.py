@@ -10,7 +10,7 @@ from cup_stack.tasks.cup_unstack import CupUnstackTask
 def main(args=None):
     rclpy.init(args=args)
     node = Node("cup_unstack_node")
-    node.declare_parameter("nest_inc", 0.0127)
+    node.declare_parameter("nest_inc", 0.0247)
 
     try:
         nest_inc = float(node.get_parameter("nest_inc").value)
