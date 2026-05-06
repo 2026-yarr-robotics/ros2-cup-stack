@@ -152,50 +152,83 @@ class CameraClickSelector:
         window_name: str = "Cup Stack Coordinate Select",
         prompt: str = "Click nested cup stack. ESC to cancel.",
     ):
-        """Show camera frames until a point is selected or ESC is pressed."""
+        """Show camera frames until a point is selected or ESC is pressed.
+
+        The window is kept open after return; call close() when done.
+        """
 
         self._window = window_name
         cv2.namedWindow(window_name)
         cv2.setMouseCallback(window_name, self.mouse_callback)
 
-        try:
-            while rclpy.ok(context=self.node.context):
-                if self.color_image is None:
-                    blank = np.zeros((480, 640, 3), dtype=np.uint8)
-                    cv2.putText(
-                        blank,
-                        "Waiting for camera...",
-                        (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        (255, 255, 255),
-                        2,
-                    )
-                    cv2.imshow(window_name, blank)
+        while rclpy.ok(context=self.node.context):
+            if self.color_image is None:
+                blank = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(
+                    blank,
+                    "Waiting for camera...",
+                    (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (255, 255, 255),
+                    2,
+                )
+                cv2.imshow(window_name, blank)
+            else:
+                display = self.color_image.copy()
+                if self.selected_xyz is None:
+                    msg = prompt
+                    color = (255, 255, 255)
                 else:
-                    display = self.color_image.copy()
-                    if self.selected_xyz is None:
-                        msg = prompt
-                        color = (255, 255, 255)
-                    else:
-                        bx, by, _ = self.selected_xyz
-                        msg = f"Selected ({bx:.3f}, {by:.3f}). ENTER to use."
-                        color = (0, 255, 0)
-                    cv2.putText(
-                        display,
-                        msg,
-                        (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7,
-                        color,
-                        2,
-                    )
-                    cv2.imshow(window_name, display)
+                    bx, by, _ = self.selected_xyz
+                    msg = f"Selected ({bx:.3f}, {by:.3f}). ENTER to use."
+                    color = (0, 255, 0)
+                cv2.putText(
+                    display,
+                    msg,
+                    (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    color,
+                    2,
+                )
+                cv2.imshow(window_name, display)
 
-                key = cv2.waitKey(20) & 0xFF
-                if key == 27:
-                    return None
-                if key in (10, 13) and self.selected_xyz is not None:
-                    return self.selected_xyz
-        finally:
-            cv2.destroyWindow(window_name)
+            key = cv2.waitKey(20) & 0xFF
+            if key == 27:
+                self.close()
+                return None
+            if key in (10, 13) and self.selected_xyz is not None:
+                return self.selected_xyz
+        return None
+
+    def monitor(self, stop_event, status_fn=None) -> None:
+        """Keep the camera window alive with a live feed until stop_event is set.
+
+        stop_event: threading.Event set when the task finishes.
+        status_fn:  optional callable returning a status string to overlay.
+        """
+
+        window_name = self._window or "Cup Stack Coordinate Select"
+        while not stop_event.is_set():
+            if self.color_image is not None:
+                display = self.color_image.copy()
+                label = status_fn() if status_fn else "Task running…"
+                cv2.putText(
+                    display,
+                    label,
+                    (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 200, 255),
+                    2,
+                )
+                cv2.imshow(window_name, display)
+            cv2.waitKey(50)
+
+    def close(self) -> None:
+        """Destroy the camera selection window."""
+
+        if self._window:
+            cv2.destroyWindow(self._window)
+            self._window = None

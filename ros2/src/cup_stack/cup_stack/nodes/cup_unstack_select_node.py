@@ -38,8 +38,20 @@ def main(args=None):
 
         pyramid_x, pyramid_y, _ = selected
         task = CupUnstackTask(runtime, nest_inc=nest_inc)
-        task.try_execute(pyramid_xy=(pyramid_x, pyramid_y))
+
+        done = threading.Event()
+        task_thread = threading.Thread(
+            target=lambda: (
+                task.try_execute(pyramid_xy=(pyramid_x, pyramid_y)),
+                done.set(),
+            ),
+            daemon=True,
+        )
+        task_thread.start()
+        selector.monitor(done)
+        task_thread.join()
     finally:
+        selector.close()
         executor.shutdown()
         node.destroy_node()
         rclpy.shutdown()

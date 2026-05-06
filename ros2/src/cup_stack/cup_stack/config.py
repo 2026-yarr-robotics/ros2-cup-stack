@@ -62,8 +62,8 @@ class CupStackConfig:
     safe_z: float = 0.55
     pick_safe_z: float = 0.45
     safe_z_min: float = 0.25
-    pick_z_base: float = 0.323
-    place_z_base: float = 0.323
+    pick_z_base: float = 0.318
+    place_z_base: float = 0.318
     place_x_offset: float = 0.10
     cup_spacing: float = 0.079
     layer_height: float = 0.095

@@ -62,8 +62,8 @@ class CupStackRuntime:
         params = PlanRequestParameters(self.robot)
         params.planning_pipeline = "pilz_industrial_motion_planner"
         params.planner_id = "LIN"
-        params.max_velocity_scaling_factor = 0.5
-        params.max_acceleration_scaling_factor = 0.3
+        params.max_velocity_scaling_factor = 0.3
+        params.max_acceleration_scaling_factor = 0.15
         params.planning_time = 2.0
         return params
 

@@ -38,8 +38,20 @@ def main(args=None):
 
         pick_x, pick_y, _ = selected
         task = CupPyramidTask(runtime, nest_inc=nest_inc)
-        task.try_execute(pick_xy=(pick_x, pick_y), place_xy=place_xy, move_home=False)
+
+        done = threading.Event()
+        task_thread = threading.Thread(
+            target=lambda: (
+                task.try_execute(pick_xy=(pick_x, pick_y), place_xy=place_xy, move_home=False),
+                done.set(),
+            ),
+            daemon=True,
+        )
+        task_thread.start()
+        selector.monitor(done)
+        task_thread.join()
     finally:
+        selector.close()
         executor.shutdown()
         node.destroy_node()
         rclpy.shutdown()
