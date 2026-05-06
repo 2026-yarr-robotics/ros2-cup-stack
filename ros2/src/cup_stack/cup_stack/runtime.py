@@ -28,11 +28,16 @@ class CupStackRuntime:
         self.motion = motion_config or MotionConfig()
         self.gripper_config = gripper_config or GripperConfig()
 
-        self.gripper = RG(
-            self.gripper_config.name,
-            self.gripper_config.toolcharger_ip,
-            self.gripper_config.toolcharger_port,
-        )
+        try:
+            self.gripper = RG(
+                self.gripper_config.name,
+                self.gripper_config.toolcharger_ip,
+                self.gripper_config.toolcharger_port,
+            )
+        except Exception as e:
+            self.logger.warning(f"Gripper init failed — hardware not connected? ({e})")
+            self.gripper = None
+
         self.robot = MoveItPy(node_name=moveit_node_name)
         self.arm = self.robot.get_planning_component(self.motion.group_name)
         self.robot_model = self.robot.get_robot_model()

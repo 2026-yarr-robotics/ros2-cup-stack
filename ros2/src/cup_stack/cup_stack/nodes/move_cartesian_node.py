@@ -74,8 +74,11 @@ def main(args=None):
         return response
 
     def handle_gripper_control(request: GripperControl.Request, response: GripperControl.Response):
+        if runtime.gripper is None:
+            response.success = False
+            response.message = "Gripper hardware not connected (192.168.1.1:502)"
+            return response
         cmd = request.command.strip().lower()
-        node.get_logger().info(f"Gripper command: {cmd}")
         try:
             if cmd == "open":
                 runtime.try_open_gripper(CupStackConfig().open_sleep_sec)
@@ -94,12 +97,14 @@ def main(args=None):
             node.get_logger().error(f"Gripper failed: {e}")
         return response
 
-    # Create services
+    # Create services — /gripper_control is always registered when the interface is built,
+    # regardless of hardware connectivity (calls return success=false when gripper is None)
     svc_move = node.create_service(MoveCartesian, "/move_cartesian", handle_move_cartesian)
     svc_grip = None
     if _GRIPPER_SRV_AVAILABLE:
         svc_grip = node.create_service(GripperControl, "/gripper_control", handle_gripper_control)
-        node.get_logger().info("move_cartesian + gripper_control services ready")
+        hw = "gripper connected" if runtime.gripper is not None else "gripper hardware not connected"
+        node.get_logger().info(f"move_cartesian + gripper_control services ready ({hw})")
     else:
         node.get_logger().warn("GripperControl.srv not built — /gripper_control unavailable. Run colcon build.")
         node.get_logger().info("move_cartesian service ready")
