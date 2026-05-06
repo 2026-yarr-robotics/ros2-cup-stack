@@ -41,6 +41,8 @@ class GripperConfig:
     open_width: int = 750
     grip_width: int = 450
     force: int = 120
+    open_sleep_sec: float = 0.8
+    grip_sleep_sec: float = 1.0
 
 
 @dataclass(frozen=True)
