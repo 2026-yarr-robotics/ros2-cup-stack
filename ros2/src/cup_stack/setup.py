@@ -42,9 +42,13 @@ setup(
             "cup_pyramid = cup_stack.nodes.cup_pyramid_node:main",
             "cup_pyramid_select = "
             "cup_stack.nodes.cup_pyramid_select_node:main",
+            "cup_pyramid_web = "
+            "cup_stack.nodes.cup_pyramid_web_node:main",
             "cup_unstack = cup_stack.nodes.cup_unstack_node:main",
             "cup_unstack_select = "
             "cup_stack.nodes.cup_unstack_select_node:main",
+            "cup_unstack_web = "
+            "cup_stack.nodes.cup_unstack_web_node:main",
             "camera_capture = cup_stack.nodes.camera_capture_node:main",
             "move_cartesian = cup_stack.nodes.move_cartesian_node:main",
         ],
