@@ -133,8 +133,9 @@ class CupStackRuntime:
                 pose_link=self.motion.ee_link,
             )
             plan_result = self.arm.plan(parameters=self.ptp_params)
-        if not plan_result and not lin:
-            self.logger.warn("PTP planning failed; retrying with OMPL")
+        if not plan_result and not strict:
+            # PTP (or LIN→PTP) all failed — last resort: OMPL
+            self.logger.warn("Pilz planning failed; retrying with OMPL")
             self.arm.set_start_state_to_current_state()
             self.arm.set_goal_state(
                 pose_stamped_msg=pose,
