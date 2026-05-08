@@ -16,7 +16,6 @@ def main(args=None):
     rclpy.init(args=args)
     node = Node("cup_pyramid_select_node")
     node.declare_parameter("nest_inc", 0.012)
-    node.declare_parameter("place_y_offset", CupStackConfig().cup_spacing)
 
     executor = MultiThreadedExecutor()
     executor.add_node(node)
@@ -25,17 +24,13 @@ def main(args=None):
 
     try:
         nest_inc = float(node.get_parameter("nest_inc").value)
-        place_y_offset = float(node.get_parameter("place_y_offset").value)
+        config = CupStackConfig()
         runtime = CupStackRuntime(node, "cup_pyramid_select_moveit_py")
         node.get_logger().info("[0] Moving HOME")
         if not runtime.try_move_home():
             return
         home_x, home_y = runtime.current_ee_xy()
-        place_xy = (home_x, home_y + place_y_offset)
-        node.get_logger().info(
-            f"HOME: ({home_x:.3f}, {home_y:.3f})  "
-            f"Pyramid center: ({place_xy[0]:.3f}, {place_xy[1]:.3f})"
-        )
+        node.get_logger().info(f"HOME: ({home_x:.3f}, {home_y:.3f})")
 
         selector = CameraClickSelector(node, runtime)
         selected = selector.select_point()
@@ -44,6 +39,13 @@ def main(args=None):
             return
 
         pick_x, pick_y, _ = selected
+        # place 중앙: pick 기준 x+offset, y-(1.5 × cup_spacing)
+        # y 오프셋 = 1.5 × 0.079 = 0.1185m → 최근접 cycle(3번) 이격 0.107m > 컵직경 0.076m
+        place_xy = (pick_x + config.place_x_offset, pick_y - 1.5 * config.cup_spacing)
+        node.get_logger().info(
+            f"Pick: ({pick_x:.3f}, {pick_y:.3f})  "
+            f"Pyramid center: ({place_xy[0]:.3f}, {place_xy[1]:.3f})"
+        )
         task = CupPyramidTask(runtime, nest_inc=nest_inc)
 
         done = threading.Event()
