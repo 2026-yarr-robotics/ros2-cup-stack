@@ -30,7 +30,9 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            DeclareLaunchArgument("nest_inc", default_value="0.012"),
+            DeclareLaunchArgument("nest_inc", default_value="0.0127"),
+            DeclareLaunchArgument("pixel_x", default_value="-1"),
+            DeclareLaunchArgument("pixel_y", default_value="-1"),
             Node(
                 package="cup_stack",
                 executable="cup_unstack_select",
@@ -38,7 +40,11 @@ def generate_launch_description():
                 parameters=[
                     moveit_config.to_dict(),
                     moveit_py_params,
-                    {"nest_inc": LaunchConfiguration("nest_inc")},
+                    {
+                        "nest_inc": LaunchConfiguration("nest_inc"),
+                        "pixel_x": LaunchConfiguration("pixel_x"),
+                        "pixel_y": LaunchConfiguration("pixel_y"),
+                    },
                 ],
             ),
         ]
