@@ -14,7 +14,7 @@ from cup_stack.vision import CameraClickSelector
 def main(args=None):
     rclpy.init(args=args)
     node = Node("cup_unstack_web_node")
-    node.declare_parameter("nest_inc", 0.0127)
+    node.declare_parameter("nest_inc", 0.012)
     node.declare_parameter("pixel_x", -1)
     node.declare_parameter("pixel_y", -1)
 

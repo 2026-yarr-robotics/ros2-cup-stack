@@ -30,7 +30,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            DeclareLaunchArgument("nest_inc", default_value="0.0127"),
+            DeclareLaunchArgument("nest_inc", default_value="0.012"),
             DeclareLaunchArgument("pixel_x", default_value="-1"),
             DeclareLaunchArgument("pixel_y", default_value="-1"),
             Node(

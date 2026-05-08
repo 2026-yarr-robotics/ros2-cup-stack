@@ -76,7 +76,8 @@ def main(args=None):
             f"IK 실패: ({x:.4f}, {y:.4f}, {z:.4f}) + DOWN_ORI 도달 불가"
         )
     else:
-        traj = plan_result.trajectory.joint_trajectory
+        traj_msg = plan_result.trajectory.get_robot_trajectory_msg()
+        traj = traj_msg.joint_trajectory
         joint_map = dict(zip(traj.joint_names, traj.points[-1].positions))
         ordered = [joint_map.get(f"joint_{i}", 0.0) for i in range(1, 7)]
         deg_vals = [math.degrees(r) for r in ordered]

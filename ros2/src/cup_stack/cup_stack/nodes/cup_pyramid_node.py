@@ -10,7 +10,7 @@ from cup_stack.tasks.cup_pyramid import CupPyramidTask
 def main(args=None):
     rclpy.init(args=args)
     node = Node("cup_pyramid_node")
-    node.declare_parameter("nest_inc", 0.0145)
+    node.declare_parameter("nest_inc", 0.012)
 
     try:
         nest_inc = float(node.get_parameter("nest_inc").value)

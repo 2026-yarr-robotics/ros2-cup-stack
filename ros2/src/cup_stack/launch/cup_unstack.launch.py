@@ -30,7 +30,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            DeclareLaunchArgument("nest_inc", default_value="0.0145"),
+            DeclareLaunchArgument("nest_inc", default_value="0.012"),
             Node(
                 package="cup_stack",
                 executable="cup_unstack",
