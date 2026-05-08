@@ -1,9 +1,11 @@
 """ROS 2 node: move robot end-effector + gripper control via ROS services."""
 
+import numpy as np
 import rclpy
 from cup_stack.config import CupStackConfig, MotionConfig
 from cup_stack.runtime import CupStackRuntime
 from cup_stack_interfaces.srv import MoveCartesian
+from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 
 try:
@@ -97,6 +99,46 @@ def main(args=None):
             node.get_logger().error(f"Gripper failed: {e}")
         return response
 
+    # Publisher: EE pose at 5 Hz so the dashboard can show actual position
+    ee_pub = node.create_publisher(PoseStamped, "/ee_pose", 10)
+
+    def _publish_ee_pose() -> None:
+        try:
+            mat = runtime.current_ee_matrix()
+            msg = PoseStamped()
+            msg.header.frame_id = "base_link"
+            msg.header.stamp = node.get_clock().now().to_msg()
+            msg.pose.position.x = float(mat[0, 3])
+            msg.pose.position.y = float(mat[1, 3])
+            msg.pose.position.z = float(mat[2, 3])
+            R = mat[:3, :3]
+            trace = R[0, 0] + R[1, 1] + R[2, 2]
+            if trace > 0:
+                s = 0.5 / np.sqrt(trace + 1.0)
+                qw = 0.25 / s; qx = (R[2, 1] - R[1, 2]) * s
+                qy = (R[0, 2] - R[2, 0]) * s; qz = (R[1, 0] - R[0, 1]) * s
+            elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
+                s = 2.0 * np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2])
+                qw = (R[2, 1] - R[1, 2]) / s; qx = 0.25 * s
+                qy = (R[0, 1] + R[1, 0]) / s; qz = (R[0, 2] + R[2, 0]) / s
+            elif R[1, 1] > R[2, 2]:
+                s = 2.0 * np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2])
+                qw = (R[0, 2] - R[2, 0]) / s; qx = (R[0, 1] + R[1, 0]) / s
+                qy = 0.25 * s; qz = (R[1, 2] + R[2, 1]) / s
+            else:
+                s = 2.0 * np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1])
+                qw = (R[1, 0] - R[0, 1]) / s; qx = (R[0, 2] + R[2, 0]) / s
+                qy = (R[1, 2] + R[2, 1]) / s; qz = 0.25 * s
+            msg.pose.orientation.x = float(qx)
+            msg.pose.orientation.y = float(qy)
+            msg.pose.orientation.z = float(qz)
+            msg.pose.orientation.w = float(qw)
+            ee_pub.publish(msg)
+        except Exception:
+            pass
+
+    ee_timer = node.create_timer(0.2, _publish_ee_pose)
+
     # Create services — /gripper_control is always registered when the interface is built,
     # regardless of hardware connectivity (calls return success=false when gripper is None)
     svc_move = node.create_service(MoveCartesian, "/move_cartesian", handle_move_cartesian)
@@ -117,6 +159,8 @@ def main(args=None):
         svc_move.destroy()
         if svc_grip:
             svc_grip.destroy()
+        ee_timer.destroy()
+        ee_pub.destroy()
         node.destroy_node()
         rclpy.shutdown()
 
