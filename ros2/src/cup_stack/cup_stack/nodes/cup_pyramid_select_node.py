@@ -1,4 +1,15 @@
-"""Web-triggered cup pyramid: pixel click → depth → pick/place → execute."""
+"""Cup pyramid with camera-based pick selection.
+
+Two modes selected automatically by the pixel_x / pixel_y parameters:
+
+  Local (default): pixel_x < 0
+    Opens an OpenCV window.  User clicks the nested cup stack to set
+    pick XY, then presses SPACE to execute.
+
+  Web (pixel_x >= 0): pixel_x / pixel_y supplied via launch args
+    Skips the OpenCV window; converts the pixel directly to a base-frame
+    coordinate via depth image + hand-eye calibration, then executes.
+"""
 
 import threading
 import time
@@ -25,14 +36,11 @@ def main(args=None):
     spin_thread = threading.Thread(target=executor.spin, daemon=True)
     spin_thread.start()
 
+    selector = None
     try:
         pixel_x = int(node.get_parameter("pixel_x").value)
         pixel_y = int(node.get_parameter("pixel_y").value)
-        if pixel_x < 0 or pixel_y < 0:
-            node.get_logger().error(
-                "pixel_x / pixel_y not set — launch with pixel_x:=N pixel_y:=M"
-            )
-            return
+        web_mode = pixel_x >= 0 and pixel_y >= 0
 
         nest_inc = float(node.get_parameter("nest_inc").value)
         config = CupStackConfig()
@@ -44,25 +52,39 @@ def main(args=None):
         runtime.sleep(config.home_sleep_sec)
 
         selector = CameraClickSelector(node, runtime)
-        node.get_logger().info(
-            f"Waiting for camera frames (pixel={pixel_x},{pixel_y})…"
-        )
-        for _ in range(100):
-            if selector.ready:
-                break
-            time.sleep(0.1)
 
-        if not selector.ready:
-            node.get_logger().error("Camera not available after 10 s")
-            return
+        if web_mode:
+            # ── Web mode: pixel coords supplied by the dashboard ──
+            node.get_logger().info(
+                f"[Web] Waiting for camera frames (pixel={pixel_x},{pixel_y})…"
+            )
+            for _ in range(100):
+                if selector.ready:
+                    break
+                time.sleep(0.1)
 
-        point = selector.pixel_to_base(pixel_x, pixel_y)
-        if point is None:
-            node.get_logger().error("Pixel-to-base conversion failed")
-            return
+            if not selector.ready:
+                node.get_logger().error("Camera not available after 10 s")
+                return
 
-        pick_x, pick_y, _ = point
-        # Place center: X offset forward, Y offset to side (away from nested stack)
+            point = selector.pixel_to_base(pixel_x, pixel_y)
+            if point is None:
+                node.get_logger().error("Pixel-to-base conversion failed")
+                return
+
+            pick_x, pick_y, _ = point
+
+        else:
+            # ── Local mode: OpenCV window for interactive selection ──
+            node.get_logger().info("[Local] Click the nested cup stack. SPACE to start.")
+            selected = selector.select_point(
+                prompt="Click nested cup stack. SPACE to start / ESC to cancel."
+            )
+            if selected is None:
+                node.get_logger().warn("No coordinate selected; exiting")
+                return
+            pick_x, pick_y, _ = selected
+
         place_xy = (
             pick_x + config.place_x_offset,
             pick_y - 1.5 * config.cup_spacing,
@@ -73,12 +95,29 @@ def main(args=None):
         )
 
         task = CupPyramidTask(runtime, nest_inc=nest_inc, config=config)
-        task.try_execute(
-            pick_xy=(pick_x, pick_y),
-            place_xy=place_xy,
-            move_home=False,
+        done = threading.Event()
+
+        task_thread = threading.Thread(
+            target=lambda: (
+                task.try_execute(
+                    pick_xy=(pick_x, pick_y),
+                    place_xy=place_xy,
+                    move_home=False,
+                ),
+                done.set(),
+            ),
+            daemon=True,
         )
+        task_thread.start()
+
+        if not web_mode:
+            selector.monitor(done)
+
+        task_thread.join()
+
     finally:
+        if selector is not None:
+            selector.close()
         executor.shutdown()
         node.destroy_node()
         rclpy.shutdown()
