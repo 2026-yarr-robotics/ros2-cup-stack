@@ -1,77 +1,119 @@
-"""Task that traces a rectangular scan path at the current home Z height."""
+"""Task that traces a rectangular scan path at the pos1 Z height.
 
-from cup_stack.config import DOWN_ORI
+Sequence
+  [0] PTP : start  → pos1  (joint-space, Pilz PTP)
+  [1] LIN : pos1   → pos2  (Cartesian)
+  [2] LIN : pos2   → pos3  (Cartesian)
+  [3] LIN : pos3   → pos4  (Cartesian)
+  [4] LIN : pos4   → pos1  (Cartesian)
+"""
+
+from moveit.core.robot_state import RobotState
+
+from cup_stack.config import DOWN_ORI, ScanConfig
 from cup_stack.runtime import CupStackRuntime
-
-# 추정값 — 실제 로봇에서 IK 검증 후 수정 필요
-# DOWN_ORI + safe_z(≈0.55) 기준 M0609 최대 도달 꼭짓점 (시계 방향)
-DEFAULT_CORNERS: list[tuple[float, float]] = [
-    (0.70,  0.15),   # 1: 正X 正Y (좌전방)
-    (0.70, -0.35),   # 2: 正X 負Y (우전방)
-    (0.35, -0.35),   # 3: 負X 負Y (우후방)
-    (0.35,  0.15),   # 4: 負X 正Y (좌후방)
-]
 
 
 class ScanTask:
-    """Scan a rectangle at the home Z while looking straight down.
-
-    Sequence: start → corner1 → corner2 → corner3 → corner4 → start
-    All moves use LIN (falls back to PTP when strict=False).
-    """
 
     def __init__(
         self,
         runtime: CupStackRuntime,
-        corners: list[tuple[float, float]] | None = None,
+        scan_config: ScanConfig | None = None,
         safe_z_min: float = 0.25,
     ) -> None:
         self.runtime = runtime
-        self.corners = corners or DEFAULT_CORNERS
+        self.cfg = scan_config or ScanConfig()
         self.safe_z_min = safe_z_min
         self.logger = runtime.logger
 
-    def try_execute(self) -> bool:
-        """Execute the rectangular scan and return to the starting pose."""
-
-        self.logger.info("=== Scan task start ===")
-
-        transform = self.runtime.current_ee_matrix()
-        home_x = float(transform[0, 3])
-        home_y = float(transform[1, 3])
-        home_z = float(transform[2, 3])
+    def _log_ee(self, label: str) -> None:
+        tf = self.runtime.current_ee_matrix()
         self.logger.info(
-            f"Start EE: x={home_x:.3f}  y={home_y:.3f}  z={home_z:.3f}"
-        )
-        self.logger.info(
-            f"Corners (z={home_z:.3f} fixed): {self.corners}"
+            f"  {label} EE: x={tf[0,3]:.3f}  y={tf[1,3]:.3f}  z={tf[2,3]:.3f}"
         )
 
-        for i, (cx, cy) in enumerate(self.corners, 1):
-            self.logger.info(
-                f"[{i}] → corner {i}: ({cx:.3f}, {cy:.3f}, {home_z:.3f})"
-            )
-            if not self.runtime.try_move_to_pose(
-                cx, cy, home_z,
-                self.safe_z_min,
-                ori=DOWN_ORI,
-                lin=True,
-                strict=False,
-            ):
-                self.logger.error(f"Corner {i} 이동 실패 — 중단")
-                return False
-
+    def _move_to_pos1(self) -> bool:
+        """PTP — joint 최단경로로 pos1 이동."""
+        rt = self.runtime
+        joints_deg = self.cfg.pos1_joints_deg
         self.logger.info(
-            f"[5] → start: ({home_x:.3f}, {home_y:.3f}, {home_z:.3f})"
+            f"  목표 joints: "
+            + "  ".join(f"J{i}={d:.2f}°" for i, d in enumerate(joints_deg, 1))
         )
+        pos1_state = RobotState(rt.robot_model)
+        pos1_state.set_joint_group_positions(
+            rt.motion.group_name,
+            self.cfg.pos1_joints_rad,
+        )
+        pos1_state.update()
+        rt.arm.set_start_state_to_current_state()
+        rt.arm.set_goal_state(robot_state=pos1_state)
+        plan_result = rt.arm.plan(parameters=rt.ptp_params)
+        if not plan_result:
+            self.logger.warn("  pos1 PTP 실패 — OMPL 재시도")
+            rt.arm.set_start_state_to_current_state()
+            rt.arm.set_goal_state(robot_state=pos1_state)
+            plan_result = rt.arm.plan(parameters=rt.ompl_params)
+        if not plan_result:
+            self.logger.error("  pos1 계획 실패")
+            return False
+        rt.robot.execute(
+            group_name=rt.motion.group_name,
+            robot_trajectory=plan_result.trajectory,
+            blocking=True,
+        )
+        self._log_ee("도달")
+        return True
+
+    def _lin(self, label: str, x: float, y: float, z: float) -> bool:
+        """LIN — Cartesian 직선 이동 (PTP fallback 포함)."""
+        self.logger.info(f"  목표: ({x:.3f}, {y:.3f}, {z:.3f})")
         if not self.runtime.try_move_to_pose(
-            home_x, home_y, home_z,
+            x, y, z,
             self.safe_z_min,
             ori=DOWN_ORI,
             lin=True,
             strict=False,
         ):
-            self.logger.error("시작 위치 복귀 실패")
+            self.logger.error(f"  {label} 이동 실패 — 중단")
+            return False
+        self._log_ee("도달")
+        return True
+
+    def try_execute(self) -> bool:
+        self.logger.info("=== Scan task start ===")
+
+        # 시작 전 현재 EE 위치 저장
+        start_tf = self.runtime.current_ee_matrix()
+        start_x = float(start_tf[0, 3])
+        start_y = float(start_tf[1, 3])
+        start_z = float(start_tf[2, 3])
+        self.logger.info(f"시작 EE: x={start_x:.3f}  y={start_y:.3f}  z={start_z:.3f}")
+
+        # [0] PTP: 현재 위치 → pos1
+        self.logger.info("[0] PTP → pos1")
+        if not self._move_to_pos1():
+            return False
+
+        # pos1 EE 위치에서 z 높이 확정
+        tf = self.runtime.current_ee_matrix()
+        z = float(tf[2, 3])
+
+        # [1~3] LIN: pos2 → pos3 → pos4
+        waypoints = [
+            ("[1] LIN → pos2", *self.cfg.pos2_xy),
+            ("[2] LIN → pos3", *self.cfg.pos3_xy),
+            ("[3] LIN → pos4", *self.cfg.pos4_xy),
+        ]
+        for label, wx, wy in waypoints:
+            self.logger.info(label)
+            if not self._lin(label, wx, wy, z):
+                return False
+
+        # [4] LIN: pos4 → 시작 위치 복귀
+        self.logger.info("[4] LIN → 시작 위치")
+        if not self._lin("[4] LIN → 시작 위치", start_x, start_y, start_z):
             return False
 
         self.logger.info("=== Scan task complete ===")

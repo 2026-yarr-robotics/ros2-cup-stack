@@ -1,5 +1,6 @@
 """Runtime adapters for MoveItPy and the RG gripper."""
 
+import math
 import time
 
 import numpy as np
@@ -7,9 +8,10 @@ import numpy as np
 from geometry_msgs.msg import PoseStamped
 from moveit.core.robot_state import RobotState
 from moveit.planning import MoveItPy, PlanRequestParameters
+from moveit_msgs.msg import Constraints, JointConstraint
 
-from .config import DOWN_ORI, GripperConfig, MotionConfig
-from .geometry import clamp_z
+from .config import DOWN_ORI, GripperConfig, MotionConfig, WorkspaceConfig
+from .geometry import clamp_workspace, clamp_z
 from .onrobot import RG
 
 
@@ -22,11 +24,13 @@ class CupStackRuntime:
         moveit_node_name: str,
         motion_config: MotionConfig | None = None,
         gripper_config: GripperConfig | None = None,
+        workspace_config: WorkspaceConfig | None = None,
     ) -> None:
         self.node = node
         self.logger = node.get_logger()
         self.motion = motion_config or MotionConfig()
         self.gripper_config = gripper_config or GripperConfig()
+        self.workspace = workspace_config or WorkspaceConfig()
 
         try:
             self.gripper = RG(
@@ -107,12 +111,14 @@ class CupStackRuntime:
     ) -> bool:
         """Plan and execute a pose move."""
 
+        cx, cy, cz = clamp_workspace(x, y, z, self.workspace, self.logger)
+        cz = clamp_z(cz, safe_z_min)  # safe_z_min 을 추가 하한으로 적용
         self.arm.set_start_state_to_current_state()
         pose = PoseStamped()
         pose.header.frame_id = self.motion.base_frame
-        pose.pose.position.x = float(x)
-        pose.pose.position.y = float(y)
-        pose.pose.position.z = float(clamp_z(z, safe_z_min))
+        pose.pose.position.x = cx
+        pose.pose.position.y = cy
+        pose.pose.position.z = cz
         orientation = ori or DOWN_ORI
         pose.pose.orientation.x = orientation["x"]
         pose.pose.orientation.y = orientation["y"]
@@ -135,13 +141,17 @@ class CupStackRuntime:
             plan_result = self.arm.plan(parameters=self.ptp_params)
         if not plan_result and not strict:
             # PTP (or LIN→PTP) all failed — last resort: OMPL
-            self.logger.warn("Pilz planning failed; retrying with OMPL")
+            # joint rotation constraint 로 한바퀴 회전 경로 차단
+            self.logger.warn("Pilz planning failed; retrying with OMPL (joint-bounded)")
+            constraints = self._joint_rotation_constraints()
+            self.arm.set_path_constraints(constraints)
             self.arm.set_start_state_to_current_state()
             self.arm.set_goal_state(
                 pose_stamped_msg=pose,
                 pose_link=self.motion.ee_link,
             )
             plan_result = self.arm.plan(parameters=self.ompl_params)
+            self.arm.set_path_constraints(Constraints())  # 반드시 초기화
         if not plan_result:
             self.logger.error("Planning failed")
             return False
@@ -152,6 +162,34 @@ class CupStackRuntime:
             blocking=True,
         )
         return True
+
+    def _joint_rotation_constraints(
+        self, tolerance: float = math.pi
+    ) -> Constraints:
+        """현재 joint 위치 기준 ±tolerance 이내로 제한하는 path constraint.
+
+        OMPL fallback 시 적용해 한바퀴(360°) 회전 경로를 차단.
+        tolerance 기본값 π(180°) → 각 관절이 현재 위치에서
+        최대 반 바퀴 이내로만 이동 가능.
+        """
+        monitor = self.robot.get_planning_scene_monitor()
+        with monitor.read_only() as scene:
+            positions = np.array(
+                scene.current_state.get_joint_group_positions(
+                    self.motion.group_name
+                ),
+                dtype=float,
+            )
+        c = Constraints()
+        for i, pos in enumerate(positions, 1):
+            jc = JointConstraint()
+            jc.joint_name = f"joint_{i}"
+            jc.position = float(pos)
+            jc.tolerance_above = tolerance
+            jc.tolerance_below = tolerance
+            jc.weight = 1.0
+            c.joint_constraints.append(jc)
+        return c
 
     def current_ee_matrix(self) -> np.ndarray:
         """Return the current end-effector transform in the base frame."""

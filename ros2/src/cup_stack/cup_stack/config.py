@@ -11,6 +11,22 @@ PICK_ORI = {"x": _S, "y": _S, "z": 0.0, "w": 0.0}
 
 
 @dataclass(frozen=True)
+class WorkspaceConfig:
+    """Safe Cartesian workspace bounds (base_link frame, metres).
+
+    click_pick_two.py 의 SAFE_* 상수와 동일한 값.
+    수정 시 이 클래스만 변경하면 모든 플래너에 일괄 적용됨.
+    """
+
+    x_min: float = 0.0
+    x_max: float = 0.80
+    y_min: float = -0.30
+    y_max: float =  0.30
+    z_min: float =  0.25
+    z_max: float =  0.80
+
+
+@dataclass(frozen=True)
 class MotionConfig:
     """MoveIt planning and robot frame configuration."""
 
@@ -29,6 +45,40 @@ class MotionConfig:
     @property
     def home_joints_rad(self) -> list[float]:
         return [math.radians(deg) for deg in self.home_joints_deg]
+
+
+@dataclass(frozen=True)
+class ScanConfig:
+    """Scan task configuration.
+
+    pos1: 시작/복귀 joint 자세 (PTP). 카메라 수직 하향 기준.
+    pos2~pos4: LIN 이동할 작업 영역 꼭짓점 (x, y). z는 pos1 EE 높이 사용.
+
+    수정 방법
+      pos1 — 로봇을 원하는 자세로 이동 후 degree 값 교체:
+              ros2 topic echo /joint_states --once
+      pos2~4 — 로봇을 각 꼭짓점으로 이동 후 EE (x, y) 교체:
+              ros2 topic echo /ee_pose --once
+    """
+
+    # pos1: joint-space (PTP) — J1~J6 (단위: degree)
+    pos1_joints_deg: tuple[float, ...] = (
+         28.6133,   # J1
+        -13.4030,   # J2
+        100.3468,   # J3
+         -0.1471,   # J4
+         90.9877,   # J5
+         25.3427,   # J6
+    )
+
+    # pos2~pos4: Cartesian (LIN) — (x, y) 단위: m
+    pos2_xy: tuple[float, float] = (0.40,  0.15)
+    pos3_xy: tuple[float, float] = (0.40, -0.15)
+    pos4_xy: tuple[float, float] = (0.20, -0.15)
+
+    @property
+    def pos1_joints_rad(self) -> list[float]:
+        return [math.radians(d) for d in self.pos1_joints_deg]
 
 
 @dataclass(frozen=True)

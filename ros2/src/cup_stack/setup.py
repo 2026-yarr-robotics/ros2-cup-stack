@@ -54,6 +54,7 @@ setup(
             "gripper_node = cup_stack.nodes.gripper_node:main",
             "find_vertical_home = cup_stack.nodes.find_vertical_home_node:main",
             "scan = cup_stack.nodes.scan_node:main",
+            "move_to_pos1 = cup_stack.nodes.move_to_pos1_node:main",
         ],
     },
 )

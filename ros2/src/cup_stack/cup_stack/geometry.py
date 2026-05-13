@@ -11,6 +11,29 @@ def clamp_z(z: float, safe_z_min: float) -> float:
     return max(z, safe_z_min)
 
 
+def clamp_workspace(
+    x: float,
+    y: float,
+    z: float,
+    cfg,
+    logger=None,
+) -> tuple[float, float, float]:
+    """Clamp (x, y, z) to WorkspaceConfig bounds.
+
+    click_pick_two.py 의 clamp_to_safe_workspace 와 동일한 역할.
+    범위 초과 시 logger 가 있으면 경고를 출력하고 클램핑된 값을 반환.
+    """
+    cx = max(cfg.x_min, min(x, cfg.x_max))
+    cy = max(cfg.y_min, min(y, cfg.y_max))
+    cz = max(cfg.z_min, min(z, cfg.z_max))
+    if logger and (cx != x or cy != y or cz != z):
+        logger.warn(
+            f"workspace clamp: ({x:.3f}, {y:.3f}, {z:.3f})"
+            f" → ({cx:.3f}, {cy:.3f}, {cz:.3f})"
+        )
+    return cx, cy, cz
+
+
 def make_twist_orientation(angle_deg: float) -> dict[str, float]:
     """Return the downward-facing quaternion with a yaw twist applied."""
 
