@@ -51,13 +51,13 @@ class MotionConfig:
 class ScanConfig:
     """Scan task configuration.
 
-    pos1: 시작/복귀 joint 자세 (PTP). 카메라 수직 하향 기준.
-    pos2~pos4: LIN 이동할 작업 영역 꼭짓점 (x, y). z는 pos1 EE 높이 사용.
+    pos1: 스캔 시작 joint 자세 (PTP). 현재 로봇 위치 기준.
+    pos2: pos1에서 LIN으로 이동할 끝점 (x, y). z는 pos1 EE 높이 사용.
 
     수정 방법
       pos1 — 로봇을 원하는 자세로 이동 후 degree 값 교체:
               ros2 topic echo /joint_states --once
-      pos2~4 — 로봇을 각 꼭짓점으로 이동 후 EE (x, y) 교체:
+      pos2  — 로봇을 끝점으로 이동 후 EE (x, y) 교체:
               ros2 topic echo /ee_pose --once
     """
 
@@ -71,14 +71,23 @@ class ScanConfig:
          25.3427,   # J6
     )
 
-    # pos2~pos4: Cartesian (LIN) — (x, y) 단위: m
-    pos2_xy: tuple[float, float] = (0.40,  0.15)
-    pos3_xy: tuple[float, float] = (0.40, -0.15)
-    pos4_xy: tuple[float, float] = (0.20, -0.15)
+    # pos2: joint-space (PTP) — J1~J6 (단위: degree)
+    pos2_joints_deg: tuple[float, ...] = (
+         28.6133,   # J1
+        -13.4030,   # J2
+        100.3468,   # J3
+         -0.1471,   # J4
+          90.9877,  # J5
+         25.3427,   # J6
+    )
 
     @property
     def pos1_joints_rad(self) -> list[float]:
         return [math.radians(d) for d in self.pos1_joints_deg]
+
+    @property
+    def pos2_joints_rad(self) -> list[float]:
+        return [math.radians(d) for d in self.pos2_joints_deg]
 
 
 @dataclass(frozen=True)
