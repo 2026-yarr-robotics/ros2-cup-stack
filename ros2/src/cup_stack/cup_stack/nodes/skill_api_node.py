@@ -6,10 +6,11 @@ requests receive ``409 Conflict``.
 
 Endpoints
 ---------
-GET  /status           -- liveness and busy check
-POST /skill/pick       -- pick a cup from an explicit XYZ
-POST /skill/pyramid    -- run the full 6-cup pyramid sequence
-POST /skill/scan       -- launch the existing scan node
+GET  /             -- pick frontend (HTML)
+GET  /status       -- liveness and busy check
+POST /skill/pick   -- pick a cup; accepts gripper Z or cup-bottom Z
+POST /skill/pyramid -- run the full 6-cup pyramid sequence
+POST /skill/scan   -- launch the existing scan node
 """
 
 import threading
@@ -20,6 +21,7 @@ from rclpy.node import Node
 try:
     import uvicorn
     from fastapi import FastAPI, HTTPException
+    from fastapi.responses import HTMLResponse
     from pydantic import BaseModel
 except ImportError as exc:
     raise SystemExit(
@@ -35,15 +37,101 @@ from cup_stack.skills.scan_skill import ScanSkill
 
 
 # ---------------------------------------------------------------------------
+# Pick frontend (served at GET /)
+# ---------------------------------------------------------------------------
+
+_FRONTEND_HTML = """\
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>CupStack Pick</title>
+<style>
+body{font-family:monospace;max-width:400px;
+     margin:48px auto;padding:0 20px}
+h2{margin-bottom:4px}
+p{margin:0 0 16px;color:#555;font-size:.9em}
+label{display:block;margin-top:10px;font-size:.85em;color:#333}
+input[type=number]{
+  width:100%;box-sizing:border-box;
+  padding:7px 8px;margin-top:3px;
+  border:1px solid #bbb;border-radius:4px;font-size:1em}
+button{
+  display:block;width:100%;margin-top:18px;
+  padding:11px;font-size:1em;cursor:pointer;
+  background:#1a73e8;color:#fff;border:none;border-radius:4px}
+button:hover{background:#1558b0}
+button:disabled{background:#aaa;cursor:default}
+#status{
+  margin-top:16px;padding:10px 12px;border-radius:4px;
+  font-size:.9em;display:none}
+.ok{background:#e6f4ea;color:#137333}
+.err{background:#fce8e6;color:#c5221f}
+.busy{background:#fef7e0;color:#b06000}
+pre{margin:8px 0 0;font-size:.85em;max-height:160px;overflow:auto}
+</style>
+</head>
+<body>
+<h2>Pick Skill</h2>
+<p>컵 바닥 중심 좌표 입력 (m)</p>
+<label>X (m)</label>
+<input id="x" type="number" step="0.001" value="0.400">
+<label>Y (m)</label>
+<input id="y" type="number" step="0.001" value="0.000">
+<label>Z — 컵 바닥 (m)</label>
+<input id="z" type="number" step="0.001" value="0.100">
+<button id="btn" onclick="run()">Pick</button>
+<div id="status"><pre id="out"></pre></div>
+<script>
+async function run(){
+  const btn=document.getElementById('btn');
+  const sd=document.getElementById('status');
+  const out=document.getElementById('out');
+  btn.disabled=true;
+  sd.className='busy';sd.style.display='block';
+  out.textContent='Running...';
+  const body={
+    x:+document.getElementById('x').value,
+    y:+document.getElementById('y').value,
+    cup_bottom_z:+document.getElementById('z').value
+  };
+  try{
+    const r=await fetch('/skill/pick',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body)
+    });
+    const j=await r.json();
+    sd.className=j.success?'ok':'err';
+    out.textContent=JSON.stringify(j,null,2);
+  }catch(e){
+    sd.className='err';
+    out.textContent='Network error: '+e;
+  }finally{
+    btn.disabled=false;
+  }
+}
+</script>
+</body>
+</html>
+"""
+
+
+# ---------------------------------------------------------------------------
 # Request / response models
 # ---------------------------------------------------------------------------
 
 class PickRequest(BaseModel):
-    """Body for POST /skill/pick."""
+    """Body for POST /skill/pick.
+
+    Supply either ``z`` (raw gripper Z) or ``cup_bottom_z`` (cup-bottom
+    centre Z, converted server-side using ``cup_grip_z_offset``).
+    """
 
     x: float
     y: float
-    z: float
+    z: float | None = None
+    cup_bottom_z: float | None = None
     ori: dict | None = None
 
 
@@ -77,7 +165,7 @@ class SkillResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# FastAPI app — _runtime is injected by the ROS 2 node before uvicorn starts
+# FastAPI app — _runtime injected by the ROS 2 node before uvicorn starts
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="CupStack Skill API")
@@ -87,7 +175,16 @@ _lock = threading.Lock()
 
 def _check_busy() -> None:
     if not _lock.acquire(blocking=False):
-        raise HTTPException(status_code=409, detail="a skill is already running")
+        raise HTTPException(
+            status_code=409, detail="a skill is already running"
+        )
+
+
+@app.get("/", response_class=HTMLResponse)
+def frontend() -> str:
+    """Serve the pick skill HTML frontend."""
+
+    return _FRONTEND_HTML
 
 
 @app.get("/status")
@@ -99,13 +196,32 @@ def status() -> dict:
 
 @app.post("/skill/pick", response_model=SkillResponse)
 def skill_pick(req: PickRequest) -> SkillResponse:
-    """Pick a cup from the given XYZ coordinate."""
+    """Pick a cup from the given coordinate.
 
+    Accepts either ``z`` (raw gripper Z) or ``cup_bottom_z`` (cup-bottom
+    centre Z).  When ``cup_bottom_z`` is given, the actual gripper Z is
+    computed as ``cup_bottom_z + config.cup_grip_z_offset``.
+    """
+
+    if req.z is None and req.cup_bottom_z is None:
+        raise HTTPException(
+            status_code=422,
+            detail="provide 'z' (gripper Z) or 'cup_bottom_z' (cup bottom Z)",
+        )
+    cfg = SkillStackConfig()
+    pick_z = (
+        req.z
+        if req.z is not None
+        else req.cup_bottom_z + cfg.cup_grip_z_offset
+    )
     _check_busy()
     try:
-        skill = PickCupSkill(_runtime, req.x, req.y, req.z, ori=req.ori)
+        skill = PickCupSkill(_runtime, req.x, req.y, pick_z, ori=req.ori)
         ok = skill.execute()
-        return SkillResponse(success=ok, skill="pick")
+        return SkillResponse(
+            success=ok, skill="pick",
+            detail=f"gripper_z={pick_z:.4f}",
+        )
     finally:
         _lock.release()
 

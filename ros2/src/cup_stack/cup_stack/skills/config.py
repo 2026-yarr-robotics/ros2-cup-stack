@@ -34,6 +34,12 @@ class SkillStackConfig:
     (``pick_z_base + (nested_count - 1) * nest_inc``); each pick then
     drops one ``nest_inc``.  Independent of ``total_cups`` (the number
     of cups actually placed into the pyramid).
+
+    ``cup_grip_z_offset`` is the vertical distance from the cup's
+    bottom-centre to the point the gripper actually grips.  Used to
+    convert an externally supplied cup-bottom Z into an actual pick Z:
+    ``pick_z = cup_bottom_z + cup_grip_z_offset``.  Calibrate this
+    value against the physical cup geometry.
     """
 
     total_cups: int = 6
@@ -42,6 +48,7 @@ class SkillStackConfig:
     pick_safe_z: float = 0.55
     safe_z_min: float = 0.25
     pick_z_base: float = 0.323
+    cup_grip_z_offset: float = 0.10
     place_z_base: float = 0.323
     place_x_offset: float = 0.10
     cup_spacing: float = 0.079
