@@ -58,6 +58,8 @@ setup(
             "scan = cup_stack.nodes.scan_node:main",
             "scan_skill = cup_stack.nodes.scan_skill_node:main",
             "move_to_pos1 = cup_stack.nodes.move_to_pos1_node:main",
+            "skill_api_server = cup_stack.nodes.skill_api_node:main",
+            "skill_api_client = cup_stack.api_client:main",
         ],
     },
 )
