@@ -42,6 +42,12 @@ else
     echo "[WARN] workspace install/setup.bash not found. Run colcon build first."
 fi
 
+# Kill any existing bringup processes before starting
+echo "[REAL] 기존 bringup 프로세스 정리 중..."
+pkill -f "dsr_bringup2_moveit\.launch\.py" 2>/dev/null || true
+pkill -f "dsr_bringup2_rviz\.launch\.py"   2>/dev/null || true
+sleep 2
+
 LAUNCH_ARGS=(
     model:=m0609
     mode:=real
