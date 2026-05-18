@@ -1,8 +1,10 @@
 """Launch the CupStack Skill API server with MoveItPy params.
 
-``host`` (default ``0.0.0.0``) and ``port`` (default ``8765``) are
-launch arguments.  ``move_home`` (default ``false``) moves the arm to
-the HOME position before the server begins accepting requests.
+``host`` (default ``0.0.0.0``), ``port`` (default ``8765``), and
+``cup_grip_z_offset`` (default ``0.10``, metres from cup-bottom centre
+to gripper grip point — calibrate to actual cup geometry) are launch
+arguments.  ``move_home`` (default ``false``) moves the arm to HOME
+before the server begins accepting requests.
 """
 
 from launch import LaunchDescription
@@ -40,6 +42,9 @@ def generate_launch_description():
             DeclareLaunchArgument("host", default_value="0.0.0.0"),
             DeclareLaunchArgument("port", default_value="8765"),
             DeclareLaunchArgument("move_home", default_value="false"),
+            DeclareLaunchArgument(
+                "cup_grip_z_offset", default_value="0.10"
+            ),
             Node(
                 package="cup_stack",
                 executable="skill_api_server",
@@ -51,6 +56,9 @@ def generate_launch_description():
                         "host": LaunchConfiguration("host"),
                         "port": LaunchConfiguration("port"),
                         "move_home": LaunchConfiguration("move_home"),
+                        "cup_grip_z_offset": LaunchConfiguration(
+                            "cup_grip_z_offset"
+                        ),
                     },
                 ],
             ),

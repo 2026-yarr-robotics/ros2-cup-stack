@@ -7,7 +7,7 @@ requests receive ``409 Conflict``.
 Endpoints
 ---------
 GET  /             -- pick frontend (HTML)
-GET  /status       -- liveness and busy check
+GET  /status       -- liveness, busy, and cup_grip_z_offset
 POST /skill/pick   -- pick a cup; accepts gripper Z or cup-bottom Z
 POST /skill/pyramid -- run the full 6-cup pyramid sequence
 POST /skill/scan   -- launch the existing scan node
@@ -50,45 +50,73 @@ _FRONTEND_HTML = """\
 body{font-family:monospace;max-width:400px;
      margin:48px auto;padding:0 20px}
 h2{margin-bottom:4px}
-p{margin:0 0 16px;color:#555;font-size:.9em}
+p.sub{margin:0 0 16px;color:#555;font-size:.9em}
 label{display:block;margin-top:10px;font-size:.85em;color:#333}
 input[type=number]{
   width:100%;box-sizing:border-box;
   padding:7px 8px;margin-top:3px;
   border:1px solid #bbb;border-radius:4px;font-size:1em}
+#preview{
+  margin-top:10px;padding:8px 10px;border-radius:4px;
+  font-size:.85em;background:#f1f3f4;color:#333}
 button{
-  display:block;width:100%;margin-top:18px;
+  display:block;width:100%;margin-top:14px;
   padding:11px;font-size:1em;cursor:pointer;
   background:#1a73e8;color:#fff;border:none;border-radius:4px}
 button:hover{background:#1558b0}
 button:disabled{background:#aaa;cursor:default}
-#status{
+#result{
   margin-top:16px;padding:10px 12px;border-radius:4px;
   font-size:.9em;display:none}
 .ok{background:#e6f4ea;color:#137333}
 .err{background:#fce8e6;color:#c5221f}
 .busy{background:#fef7e0;color:#b06000}
-pre{margin:8px 0 0;font-size:.85em;max-height:160px;overflow:auto}
+pre{margin:6px 0 0;font-size:.85em;max-height:160px;overflow:auto}
 </style>
 </head>
 <body>
 <h2>Pick Skill</h2>
-<p>컵 바닥 중심 좌표 입력 (m)</p>
+<p class="sub">컵 바닥 중심 좌표 입력 (m)</p>
 <label>X (m)</label>
-<input id="x" type="number" step="0.001" value="0.400">
+<input id="x" type="number" step="0.001" value="0.400"
+       oninput="updatePreview()">
 <label>Y (m)</label>
-<input id="y" type="number" step="0.001" value="0.000">
+<input id="y" type="number" step="0.001" value="0.000"
+       oninput="updatePreview()">
 <label>Z — 컵 바닥 (m)</label>
-<input id="z" type="number" step="0.001" value="0.100">
+<input id="z" type="number" step="0.001" value="0.100"
+       oninput="updatePreview()">
+<div id="preview">Gripper Z: —</div>
 <button id="btn" onclick="run()">Pick</button>
-<div id="status"><pre id="out"></pre></div>
+<div id="result"><pre id="out"></pre></div>
 <script>
+let _offset=null;
+async function init(){
+  try{
+    const s=await fetch('/status');
+    const j=await s.json();
+    _offset=j.cup_grip_z_offset??null;
+    updatePreview();
+  }catch(_){}
+}
+function updatePreview(){
+  const z=parseFloat(document.getElementById('z').value);
+  const el=document.getElementById('preview');
+  if(_offset!==null&&!isNaN(z)){
+    const gz=(z+_offset).toFixed(4);
+    el.textContent=
+      'Gripper Z = '+z.toFixed(3)+' + '+_offset.toFixed(3)
+      +' = '+gz+' m';
+  }else{
+    el.textContent='Gripper Z: —';
+  }
+}
 async function run(){
   const btn=document.getElementById('btn');
-  const sd=document.getElementById('status');
+  const rd=document.getElementById('result');
   const out=document.getElementById('out');
   btn.disabled=true;
-  sd.className='busy';sd.style.display='block';
+  rd.className='busy';rd.style.display='block';
   out.textContent='Running...';
   const body={
     x:+document.getElementById('x').value,
@@ -102,15 +130,16 @@ async function run(){
       body:JSON.stringify(body)
     });
     const j=await r.json();
-    sd.className=j.success?'ok':'err';
+    rd.className=j.success?'ok':'err';
     out.textContent=JSON.stringify(j,null,2);
   }catch(e){
-    sd.className='err';
+    rd.className='err';
     out.textContent='Network error: '+e;
   }finally{
     btn.disabled=false;
   }
 }
+init();
 </script>
 </body>
 </html>
@@ -165,12 +194,13 @@ class SkillResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# FastAPI app — _runtime injected by the ROS 2 node before uvicorn starts
+# FastAPI app — _runtime and _cup_grip_z_offset injected before uvicorn starts
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="CupStack Skill API")
 _runtime: CupStackRuntime | None = None
 _lock = threading.Lock()
+_cup_grip_z_offset: float = SkillStackConfig().cup_grip_z_offset
 
 
 def _check_busy() -> None:
@@ -189,9 +219,13 @@ def frontend() -> str:
 
 @app.get("/status")
 def status() -> dict:
-    """Return server liveness and whether a skill is currently running."""
+    """Return server liveness, busy state, and cup_grip_z_offset."""
 
-    return {"ready": _runtime is not None, "busy": _lock.locked()}
+    return {
+        "ready": _runtime is not None,
+        "busy": _lock.locked(),
+        "cup_grip_z_offset": _cup_grip_z_offset,
+    }
 
 
 @app.post("/skill/pick", response_model=SkillResponse)
@@ -199,20 +233,19 @@ def skill_pick(req: PickRequest) -> SkillResponse:
     """Pick a cup from the given coordinate.
 
     Accepts either ``z`` (raw gripper Z) or ``cup_bottom_z`` (cup-bottom
-    centre Z).  When ``cup_bottom_z`` is given, the actual gripper Z is
-    computed as ``cup_bottom_z + config.cup_grip_z_offset``.
+    centre Z).  When ``cup_bottom_z`` is given the actual gripper Z is
+    ``cup_bottom_z + cup_grip_z_offset`` (configurable node parameter).
     """
 
     if req.z is None and req.cup_bottom_z is None:
         raise HTTPException(
             status_code=422,
-            detail="provide 'z' (gripper Z) or 'cup_bottom_z' (cup bottom Z)",
+            detail="provide 'z' (gripper Z) or 'cup_bottom_z'",
         )
-    cfg = SkillStackConfig()
     pick_z = (
         req.z
         if req.z is not None
-        else req.cup_bottom_z + cfg.cup_grip_z_offset
+        else req.cup_bottom_z + _cup_grip_z_offset
     )
     _check_busy()
     try:
@@ -293,13 +326,20 @@ def main(args=None) -> None:
     node.declare_parameter("host", "0.0.0.0")
     node.declare_parameter("port", 8765)
     node.declare_parameter("move_home", False)
+    node.declare_parameter(
+        "cup_grip_z_offset", SkillStackConfig().cup_grip_z_offset
+    )
 
-    global _runtime
+    global _runtime, _cup_grip_z_offset
     try:
         host = str(node.get_parameter("host").value)
         port = int(node.get_parameter("port").value)
         move_home = bool(node.get_parameter("move_home").value)
+        _cup_grip_z_offset = float(
+            node.get_parameter("cup_grip_z_offset").value
+        )
         log = node.get_logger()
+        log.info(f"cup_grip_z_offset={_cup_grip_z_offset:.4f} m")
 
         _runtime = CupStackRuntime(node, "skill_api_moveit_py")
 
