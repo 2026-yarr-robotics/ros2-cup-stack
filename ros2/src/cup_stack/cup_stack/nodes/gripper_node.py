@@ -35,13 +35,10 @@ def main(args=None):
             gripper_cfg.toolcharger_port,
         )
         node.get_logger().info(
-            "Gripper connected: %s @ %s:%d",
-            gripper_cfg.name,
-            gripper_cfg.toolcharger_ip,
-            gripper_cfg.toolcharger_port,
+            f"Gripper connected: {gripper_cfg.name} @ {gripper_cfg.toolcharger_ip}:{gripper_cfg.toolcharger_port}"
         )
     except Exception as exc:
-        node.get_logger().warning("Gripper not connected (%s) — service will return errors", exc)
+        node.get_logger().warning(f"Gripper not connected ({exc}) — service will return errors")
         gripper = None
 
     if not _SRV_AVAILABLE:
@@ -77,12 +74,12 @@ def main(args=None):
         except Exception as exc:
             response.success = False
             response.message = str(exc)
-            node.get_logger().error("Gripper error: %s", exc)
+            node.get_logger().error(f"Gripper error: {exc}")
         return response
 
     svc = node.create_service(GripperControl, "/gripper_control", handle_gripper)
     hw = "connected" if gripper is not None else "not connected (hardware unavailable)"
-    node.get_logger().info("gripper_control service ready (gripper %s)", hw)
+    node.get_logger().info(f"gripper_control service ready (gripper {hw})")
 
     try:
         rclpy.spin(node)
