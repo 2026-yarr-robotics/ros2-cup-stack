@@ -45,100 +45,178 @@ _FRONTEND_HTML = """\
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<title>CupStack Pick</title>
+<title>CupStack Skill CLI</title>
 <style>
-body{font-family:monospace;max-width:400px;
-     margin:48px auto;padding:0 20px}
-h2{margin-bottom:4px}
-p.sub{margin:0 0 16px;color:#555;font-size:.9em}
-label{display:block;margin-top:10px;font-size:.85em;color:#333}
-input[type=number]{
-  width:100%;box-sizing:border-box;
-  padding:7px 8px;margin-top:3px;
-  border:1px solid #bbb;border-radius:4px;font-size:1em}
-#preview{
-  margin-top:10px;padding:8px 10px;border-radius:4px;
-  font-size:.85em;background:#f1f3f4;color:#333}
-button{
-  display:block;width:100%;margin-top:14px;
-  padding:11px;font-size:1em;cursor:pointer;
-  background:#1a73e8;color:#fff;border:none;border-radius:4px}
-button:hover{background:#1558b0}
-button:disabled{background:#aaa;cursor:default}
-#result{
-  margin-top:16px;padding:10px 12px;border-radius:4px;
-  font-size:.9em;display:none}
-.ok{background:#e6f4ea;color:#137333}
-.err{background:#fce8e6;color:#c5221f}
-.busy{background:#fef7e0;color:#b06000}
-pre{margin:6px 0 0;font-size:.85em;max-height:160px;overflow:auto}
+*{box-sizing:border-box}
+body{
+  background:#1e1e1e;color:#d4d4d4;
+  font-family:'Courier New',monospace;
+  margin:0;padding:24px;min-height:100vh}
+h2{color:#9cdcfe;margin:0 0 4px}
+p.sub{margin:0 0 16px;color:#6a9955;font-size:.85em}
+#help{
+  background:#252526;border:1px solid #3c3c3c;
+  border-radius:6px;padding:12px 16px;
+  margin-bottom:16px;font-size:.82em;line-height:1.8;color:#ce9178}
+#help b{color:#dcdcaa}
+#log{
+  background:#252526;border:1px solid #3c3c3c;
+  border-radius:6px;padding:12px 16px;
+  min-height:200px;max-height:420px;overflow-y:auto;
+  margin-bottom:12px;font-size:.85em;line-height:1.6}
+.line-cmd{color:#9cdcfe}
+.line-ok{color:#4ec9b0}
+.line-err{color:#f44747}
+.line-busy{color:#dcdcaa}
+.line-info{color:#6a9955}
+.line-hint{color:#808080}
+#input-row{display:flex;gap:8px}
+#cmd{
+  flex:1;background:#3c3c3c;color:#d4d4d4;
+  border:1px solid #555;border-radius:4px;
+  padding:8px 12px;font-family:inherit;font-size:.95em}
+#cmd:focus{outline:none;border-color:#007acc}
+#run{
+  background:#0e639c;color:#fff;border:none;
+  border-radius:4px;padding:8px 18px;
+  font-family:inherit;font-size:.95em;cursor:pointer}
+#run:hover{background:#1177bb}
+#run:disabled{background:#555;cursor:default}
 </style>
 </head>
 <body>
-<h2>Pick Skill</h2>
-<p class="sub">컵 바닥 중심 좌표 입력 (m)</p>
-<label>X (m)</label>
-<input id="x" type="number" step="0.001" value="0.400"
-       oninput="updatePreview()">
-<label>Y (m)</label>
-<input id="y" type="number" step="0.001" value="0.000"
-       oninput="updatePreview()">
-<label>Z — 컵 바닥 (m)</label>
-<input id="z" type="number" step="0.001" value="0.100"
-       oninput="updatePreview()">
-<div id="preview">Gripper Z: —</div>
-<button id="btn" onclick="run()">Pick</button>
-<div id="result"><pre id="out"></pre></div>
+<h2>CupStack Skill CLI</h2>
+<p class="sub"># skill API command terminal</p>
+<div id="help">
+<b>pick</b>  x  y  z_bottom          &nbsp;— 컵 바닥 Z 기준 pick<br>
+<b>pick</b>  x  y  --z  z_gripper    &nbsp;— 그리퍼 Z 직접 지정<br>
+<b>status</b>                         &nbsp;— 서버 상태 / offset 확인<br>
+<b>scan</b>                           &nbsp;— 스캔 실행<br>
+<b>help</b>                           &nbsp;— 이 도움말
+</div>
+<div id="log"></div>
+<div id="input-row">
+  <input id="cmd" placeholder="pick 0.40 0.00 0.10" autofocus
+         onkeydown="if(event.key==='Enter')exec()">
+  <button id="run" onclick="exec()">Run</button>
+</div>
 <script>
 let _offset=null;
+const log=document.getElementById('log');
+const inp=document.getElementById('cmd');
+const btn=document.getElementById('run');
+const hist=[];let hIdx=-1;
+
+function print(text,cls){
+  const d=document.createElement('div');
+  d.className='line-'+cls;
+  d.textContent=text;
+  log.appendChild(d);
+  log.scrollTop=log.scrollHeight;
+}
+
 async function init(){
   try{
-    const s=await fetch('/status');
-    const j=await s.json();
+    const j=await(await fetch('/status')).json();
     _offset=j.cup_grip_z_offset??null;
-    updatePreview();
-  }catch(_){}
-}
-function updatePreview(){
-  const z=parseFloat(document.getElementById('z').value);
-  const el=document.getElementById('preview');
-  if(_offset!==null&&!isNaN(z)){
-    const gz=(z+_offset).toFixed(4);
-    el.textContent=
-      'Gripper Z = '+z.toFixed(3)+' + '+_offset.toFixed(3)
-      +' = '+gz+' m';
-  }else{
-    el.textContent='Gripper Z: —';
+    print(
+      '# server ready  cup_grip_z_offset='
+      +(_offset!==null?_offset.toFixed(3)+'m':'?'),
+      'info'
+    );
+    print('# type help for usage','hint');
+  }catch(e){
+    print('# server unreachable: '+e,'err');
   }
 }
-async function run(){
-  const btn=document.getElementById('btn');
-  const rd=document.getElementById('result');
-  const out=document.getElementById('out');
+
+function parseArgs(tokens){
+  const kv={};const pos=[];
+  for(let i=0;i<tokens.length;i++){
+    if(tokens[i].startsWith('--')){
+      kv[tokens[i].slice(2)]=tokens[++i];
+    }else{pos.push(tokens[i]);}
+  }
+  return{pos,kv};
+}
+
+async function exec(){
+  const raw=inp.value.trim();
+  if(!raw)return;
+  hist.unshift(raw);hIdx=-1;
+  inp.value='';
+  print('> '+raw,'cmd');
   btn.disabled=true;
-  rd.className='busy';rd.style.display='block';
-  out.textContent='Running...';
-  const body={
-    x:+document.getElementById('x').value,
-    y:+document.getElementById('y').value,
-    cup_bottom_z:+document.getElementById('z').value
-  };
+
+  const tokens=raw.split(/\s+/);
+  const cmd=tokens[0].toLowerCase();
+  const rest=tokens.slice(1);
+
   try{
-    const r=await fetch('/skill/pick',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(body)
-    });
-    const j=await r.json();
-    rd.className=j.success?'ok':'err';
-    out.textContent=JSON.stringify(j,null,2);
+    if(cmd==='help'){
+      print('pick x y z_bottom | pick x y --z z_gripper','hint');
+      print('status | scan','hint');
+    }else if(cmd==='status'){
+      const j=await(await fetch('/status')).json();
+      _offset=j.cup_grip_z_offset??_offset;
+      print(JSON.stringify(j,null,2),'ok');
+    }else if(cmd==='scan'){
+      print('running scan...','hint');
+      const j=await(await fetch('/skill/scan',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:'{}'})).json();
+      print(JSON.stringify(j,null,2),j.success?'ok':'err');
+    }else if(cmd==='pick'){
+      const{pos,kv}=parseArgs(rest);
+      if(pos.length<2){
+        print('usage: pick x y z_bottom  |  pick x y --z z_gripper','err');
+      }else{
+        const x=parseFloat(pos[0]);
+        const y=parseFloat(pos[1]);
+        const body={x,y};
+        if('z'in kv){
+          body.z=parseFloat(kv.z);
+          print(
+            'gripper_z='+body.z.toFixed(4),'hint');
+        }else if(pos.length>=3){
+          body.cup_bottom_z=parseFloat(pos[2]);
+          const gz=body.cup_bottom_z+(_offset??0);
+          print(
+            'cup_bottom_z='+body.cup_bottom_z.toFixed(4)
+            +' + offset='+(_offset??'?')
+            +' → gripper_z='+gz.toFixed(4),'hint');
+        }else{
+          print('provide z_bottom or --z z_gripper','err');
+          btn.disabled=false;return;
+        }
+        print('running pick...','hint');
+        const j=await(await fetch('/skill/pick',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(body)})).json();
+        print(JSON.stringify(j,null,2),j.success?'ok':'err');
+      }
+    }else{
+      print('unknown command: '+cmd+' (try help)','err');
+    }
   }catch(e){
-    rd.className='err';
-    out.textContent='Network error: '+e;
+    print('error: '+e,'err');
   }finally{
     btn.disabled=false;
+    inp.focus();
   }
 }
+
+inp.addEventListener('keydown',e=>{
+  if(e.key==='ArrowUp'){
+    hIdx=Math.min(hIdx+1,hist.length-1);
+    inp.value=hist[hIdx]??'';e.preventDefault();
+  }else if(e.key==='ArrowDown'){
+    hIdx=Math.max(hIdx-1,-1);
+    inp.value=hIdx<0?'':hist[hIdx];e.preventDefault();
+  }
+});
+
 init();
 </script>
 </body>
