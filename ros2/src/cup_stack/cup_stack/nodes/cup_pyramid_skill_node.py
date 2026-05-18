@@ -1,14 +1,14 @@
 """Controller node: run the 3-2-1 pyramid as ordered cup skills.
 
 Each cup is one skill (tier1 left/mid/right, tier2 x2, tier3 cap).
-This node owns the sequence and *presents* the start coordinate — the
-cup-middle XY of the nested source stack.  Every skill already knows
-its destination from the pyramid centre.
+This node owns the sequence and presents a ``SourceStack`` for every
+step.  Each step may draw from a different physical stack, or multiple
+steps may share one stack — Z drops automatically when steps share the
+same XY.
 
-This node is the only integration point between the standalone
-``cup_stack.skills`` package and the existing runtime: the runtime is
-passed in by duck typing as a ``RobotIO``, so the skills themselves
-stay free of any dependency on the reference code.
+Global defaults (``pick_x``, ``pick_y``, ``nested_count``) apply to
+every step not overridden by ``pick_x_N``, ``pick_y_N``,
+``nested_count_N`` (N = 0 … total_cups-1).
 """
 
 import math
@@ -18,7 +18,7 @@ from rclpy.node import Node
 
 from cup_stack.runtime import CupStackRuntime
 from cup_stack.skills.config import SkillStackConfig
-from cup_stack.skills.pyramid_plan import PyramidStackPlan
+from cup_stack.skills.pyramid_plan import PyramidStackPlan, SourceStack
 
 
 def _resolved(node: Node, name: str, fallback: float) -> float:
@@ -41,6 +41,10 @@ def main(args=None):
     node.declare_parameter("move_home", True)
     node.declare_parameter("spread_axis", "y")
     node.declare_parameter("nested_count", 6)
+    for _i in range(6):
+        node.declare_parameter(f"pick_x_{_i}", math.nan)
+        node.declare_parameter(f"pick_y_{_i}", math.nan)
+        node.declare_parameter(f"nested_count_{_i}", -1)
 
     try:
         nest_inc = float(node.get_parameter("nest_inc").value)
@@ -87,10 +91,19 @@ def main(args=None):
         center_y = _resolved(node, "place_y", pick_y)
 
         log.info(
-            f"pick(cup-middle)=({pick_x:.3f},{pick_y:.3f})  "
+            f"pick(default)=({pick_x:.3f},{pick_y:.3f})  "
             f"pyramid_center=({center_x:.3f},{center_y:.3f})  "
-            f"spread={spread_axis}-axis  nested_count={nested_count}"
+            f"spread={spread_axis}-axis  nested_count(default)={nested_count}"
         )
+
+        stacks = []
+        for i in range(config.total_cups):
+            sx = _resolved(node, f"pick_x_{i}", pick_x)
+            sy = _resolved(node, f"pick_y_{i}", pick_y)
+            nc_i = int(node.get_parameter(f"nested_count_{i}").value)
+            stacks.append(SourceStack(x=sx, y=sy,
+                                      nested_count=nc_i if nc_i >= 0
+                                      else nested_count))
 
         plan = PyramidStackPlan(
             runtime,
@@ -98,11 +111,11 @@ def main(args=None):
             nest_inc=nest_inc,
             config=config,
         )
-        plan.log_plan()
+        plan.log_plan(stacks)
 
         for i, skill in enumerate(plan.skills):
             log.info(f"--- step {i + 1}/{len(plan)}: {skill.name} ---")
-            pick = plan.pick_spec(i, pick_x, pick_y)
+            pick = plan.pick_spec(i, stacks)
             if not skill.execute(pick):
                 log.error(
                     f"skill {skill.name} failed; aborting sequence"
