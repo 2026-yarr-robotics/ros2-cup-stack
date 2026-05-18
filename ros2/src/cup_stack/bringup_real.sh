@@ -42,11 +42,25 @@ else
     echo "[WARN] workspace install/setup.bash not found. Run colcon build first."
 fi
 
-# Kill any existing bringup processes before starting
-echo "[REAL] 기존 bringup 프로세스 정리 중..."
-pkill -f "dsr_bringup2_moveit\.launch\.py" 2>/dev/null || true
-pkill -f "dsr_bringup2_rviz\.launch\.py"   2>/dev/null || true
+# Kill any existing bringup processes before starting.
+# The launch wrappers leave orphaned child nodes (ros2_control_node,
+# robot_state_publisher, spawner, rviz2) that pkill on the *.launch.py
+# wrapper alone does NOT reap — they accumulate across runs and multiple
+# controller_manager instances then contend for the single Doosan DRFL
+# session, so /dsr01/motion/* calls hang (30s timeout). Scope kills to
+# the /dsr01 namespace so unrelated ROS nodes on the host are untouched.
+echo "[REAL] 기존 bringup/잔존 노드 정리 중..."
+pkill -f "dsr_bringup2_moveit\.launch\.py"            2>/dev/null || true
+pkill -f "dsr_bringup2_rviz\.launch\.py"              2>/dev/null || true
+pkill -f "ros2_control_node.*__ns:=/dsr01"            2>/dev/null || true
+pkill -f "robot_state_publisher.*__ns:=/dsr01"        2>/dev/null || true
+pkill -f "controller_manager/spawner.*__ns:=/dsr01"   2>/dev/null || true
+pkill -f "rviz2 .*__ns:=/dsr01"                       2>/dev/null || true
 sleep 2
+# Escalate for anything that ignored SIGTERM.
+pkill -9 -f "ros2_control_node.*__ns:=/dsr01"         2>/dev/null || true
+pkill -9 -f "robot_state_publisher.*__ns:=/dsr01"     2>/dev/null || true
+sleep 1
 
 LAUNCH_ARGS=(
     model:=m0609
