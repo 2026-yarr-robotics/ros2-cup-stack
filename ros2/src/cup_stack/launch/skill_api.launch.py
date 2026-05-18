@@ -1,7 +1,7 @@
 """Launch the CupStack Skill API server with MoveItPy params.
 
 ``host`` (default ``0.0.0.0``), ``port`` (default ``8765``), and
-``cup_grip_z_offset`` (default ``0.10``, metres from cup-bottom centre
+``cup_grip_z_offset`` (default ``0.10``, metres from cup-top centre
 to gripper grip point — calibrate to actual cup geometry) are launch
 arguments.  ``move_home`` (default ``false``) moves the arm to HOME
 before the server begins accepting requests.

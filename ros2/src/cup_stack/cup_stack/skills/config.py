@@ -36,9 +36,9 @@ class SkillStackConfig:
     of cups actually placed into the pyramid).
 
     ``cup_grip_z_offset`` is the vertical distance from the cup's
-    bottom-centre to the point the gripper actually grips.  Used to
-    convert an externally supplied cup-bottom Z into an actual pick Z:
-    ``pick_z = cup_bottom_z + cup_grip_z_offset``.  Calibrate this
+    top-centre to the point the gripper actually grips.  Used to
+    convert an externally supplied cup-top Z into an actual pick Z:
+    ``pick_z = cup_top_z + cup_grip_z_offset``.  Calibrate this
     value against the physical cup geometry.
     """
 

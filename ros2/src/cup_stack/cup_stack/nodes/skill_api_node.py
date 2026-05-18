@@ -8,7 +8,7 @@ Endpoints
 ---------
 GET  /             -- pick frontend (HTML)
 GET  /status       -- liveness, busy, and cup_grip_z_offset
-POST /skill/pick   -- pick a cup; accepts gripper Z or cup-bottom Z
+POST /skill/pick   -- pick a cup; accepts gripper Z or cup-top Z
 POST /skill/pyramid -- run the full 6-cup pyramid sequence
 POST /skill/scan   -- launch the existing scan node
 """
@@ -88,7 +88,7 @@ p.sub{margin:0 0 16px;color:#6a9955;font-size:.85em}
 <h2>CupStack Skill CLI</h2>
 <p class="sub"># skill API command terminal</p>
 <div id="help">
-<b>pick</b>  x  y  z_bottom          &nbsp;— 컵 바닥 Z 기준 pick<br>
+<b>pick</b>  x  y  z_top            &nbsp;— 컵 윗면 Z 기준 pick<br>
 <b>pick</b>  x  y  --z  z_gripper    &nbsp;— 그리퍼 Z 직접 지정<br>
 <b>status</b>                         &nbsp;— 서버 상태 / offset 확인<br>
 <b>scan</b>                           &nbsp;— 스캔 실행<br>
@@ -154,7 +154,7 @@ async function exec(){
 
   try{
     if(cmd==='help'){
-      print('pick x y z_bottom | pick x y --z z_gripper','hint');
+      print('pick x y z_top | pick x y --z z_gripper','hint');
       print('status | scan','hint');
     }else if(cmd==='status'){
       const j=await(await fetch('/status')).json();
@@ -169,7 +169,7 @@ async function exec(){
     }else if(cmd==='pick'){
       const{pos,kv}=parseArgs(rest);
       if(pos.length<2){
-        print('usage: pick x y z_bottom  |  pick x y --z z_gripper','err');
+        print('usage: pick x y z_top  |  pick x y --z z_gripper','err');
       }else{
         const x=parseFloat(pos[0]);
         const y=parseFloat(pos[1]);
@@ -179,14 +179,14 @@ async function exec(){
           print(
             'gripper_z='+body.z.toFixed(4),'hint');
         }else if(pos.length>=3){
-          body.cup_bottom_z=parseFloat(pos[2]);
-          const gz=body.cup_bottom_z+(_offset??0);
+          body.cup_top_z=parseFloat(pos[2]);
+          const gz=body.cup_top_z+(_offset??0);
           print(
-            'cup_bottom_z='+body.cup_bottom_z.toFixed(4)
+            'cup_top_z='+body.cup_top_z.toFixed(4)
             +' + offset='+(_offset??'?')
             +' → gripper_z='+gz.toFixed(4),'hint');
         }else{
-          print('provide z_bottom or --z z_gripper','err');
+          print('provide z_top or --z z_gripper','err');
           btn.disabled=false;return;
         }
         print('running pick...','hint');
@@ -231,14 +231,14 @@ init();
 class PickRequest(BaseModel):
     """Body for POST /skill/pick.
 
-    Supply either ``z`` (raw gripper Z) or ``cup_bottom_z`` (cup-bottom
+    Supply either ``z`` (raw gripper Z) or ``cup_top_z`` (cup-top
     centre Z, converted server-side using ``cup_grip_z_offset``).
     """
 
     x: float
     y: float
     z: float | None = None
-    cup_bottom_z: float | None = None
+    cup_top_z: float | None = None
     ori: dict | None = None
 
 
@@ -310,20 +310,20 @@ def status() -> dict:
 def skill_pick(req: PickRequest) -> SkillResponse:
     """Pick a cup from the given coordinate.
 
-    Accepts either ``z`` (raw gripper Z) or ``cup_bottom_z`` (cup-bottom
-    centre Z).  When ``cup_bottom_z`` is given the actual gripper Z is
-    ``cup_bottom_z + cup_grip_z_offset`` (configurable node parameter).
+    Accepts either ``z`` (raw gripper Z) or ``cup_top_z`` (cup-top
+    centre Z).  When ``cup_top_z`` is given the actual gripper Z is
+    ``cup_top_z + cup_grip_z_offset`` (configurable node parameter).
     """
 
-    if req.z is None and req.cup_bottom_z is None:
+    if req.z is None and req.cup_top_z is None:
         raise HTTPException(
             status_code=422,
-            detail="provide 'z' (gripper Z) or 'cup_bottom_z'",
+            detail="provide 'z' (gripper Z) or 'cup_top_z'",
         )
     pick_z = (
         req.z
         if req.z is not None
-        else req.cup_bottom_z + _cup_grip_z_offset
+        else req.cup_top_z + _cup_grip_z_offset
     )
     _check_busy()
     try:

@@ -42,21 +42,21 @@ class SkillApiClient:
         y: float,
         z: float | None = None,
         ori: dict | None = None,
-        cup_bottom_z: float | None = None,
+        cup_top_z: float | None = None,
     ) -> dict:
         """Pick a cup from the given coordinate.
 
-        Pass ``z`` for an explicit gripper Z, or ``cup_bottom_z`` for
-        the cup-bottom centre Z (the server applies ``cup_grip_z_offset``
+        Pass ``z`` for an explicit gripper Z, or ``cup_top_z`` for
+        the cup-top centre Z (the server applies ``cup_grip_z_offset``
         to compute the actual gripper height).  Exactly one must be set.
         """
 
-        if z is None and cup_bottom_z is None:
-            raise ValueError("provide z or cup_bottom_z")
+        if z is None and cup_top_z is None:
+            raise ValueError("provide z or cup_top_z")
         return requests.post(
             f"{self.base}/skill/pick",
             json={"x": x, "y": y, "z": z,
-                  "cup_bottom_z": cup_bottom_z, "ori": ori},
+                  "cup_top_z": cup_top_z, "ori": ori},
             timeout=60,
         ).json()
 
@@ -123,12 +123,12 @@ def main(args=None) -> None:
     p_pick.add_argument("y", type=float)
     p_pick.add_argument(
         "z", type=float, nargs="?", default=None,
-        help="gripper Z (raw); omit when using --cup-bottom-z",
+        help="gripper Z (raw); omit when using --cup-top-z",
     )
     p_pick.add_argument(
-        "--cup-bottom-z", type=float, default=None,
+        "--cup-top-z", type=float, default=None,
         metavar="Z",
-        help="cup-bottom centre Z; server adds cup_grip_z_offset",
+        help="cup-top centre Z; server adds cup_grip_z_offset",
     )
 
     p_pyr = sub.add_parser("pyramid", help="run the full pyramid sequence")
@@ -151,7 +151,7 @@ def main(args=None) -> None:
         result = client.pick(
             ns.x, ns.y,
             z=ns.z,
-            cup_bottom_z=ns.cup_bottom_z,
+            cup_top_z=ns.cup_top_z,
         )
     elif ns.cmd == "pyramid":
         result = client.pyramid(
