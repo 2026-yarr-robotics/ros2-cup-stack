@@ -127,7 +127,7 @@ class GripperConfig:
     """OnRobot RG gripper configuration."""
 
     name: str = "rg2"
-    toolcharger_ip: str = "192.168.137.100"
+    toolcharger_ip: str = "192.168.1.1"
     toolcharger_port: int = 502
     open_width: int = 900
     grip_width: int = 450
