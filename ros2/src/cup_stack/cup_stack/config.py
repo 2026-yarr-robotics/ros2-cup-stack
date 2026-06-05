@@ -163,7 +163,7 @@ class CupStackConfig:
     place_z_base: float = 0.318
     place_x_offset: float = 0.10
     cup_spacing: float = 0.078
-    layer_height: float = 0.095
+    layer_height: float = 0.093
     place_twist_deg: float = 10.0
     open_sleep_sec: float = 0.8
     grip_sleep_sec: float = 1.5
