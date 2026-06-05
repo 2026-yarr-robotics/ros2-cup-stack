@@ -59,7 +59,7 @@ class SkillStackConfig:
     travel_clearance: float = 0.03
     pick_z_base: float = 0.313
     cup_grip_z_offset: float = 0.10
-    place_z_base: float = 0.323
+    place_z_base: float = 0.321
     place_x_offset: float = 0.10
     cup_spacing: float = 0.078
     layer_height: float = 0.095
