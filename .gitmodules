@@ -1,3 +1,4 @@
 [submodule "ros2/src/doosan-robot2"]
 	path = ros2/src/doosan-robot2
-	url = https://github.com/doosan-robotics/doosan-robot2.git
+	url = https://github.com/2026-yarr-robotics/doosan-robot2.git
+	branch = yarr-integration
