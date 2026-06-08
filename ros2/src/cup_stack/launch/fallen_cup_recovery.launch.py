@@ -18,10 +18,15 @@ Launched by the dashboard server as the ``fallen_cup_recovery`` TASK command.
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    GroupAction,
+    IncludeLaunchDescription,
+)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node, PushRosNamespace
+from launch_ros.actions import PushRosNamespace
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -33,16 +38,24 @@ def generate_launch_description():
     )
 
     # Bringup (dsr_bringup2) spawns only dsr_controller2. MoveIt needs a
-    # standard FollowJointTrajectory controller, so activate
-    # dsr_moveit_controller against the namespaced controller_manager.
-    # Identical to the spawner in skill_api.launch.py.
-    dsr_moveit_controller_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=[
-            "dsr_moveit_controller",
-            "--controller-manager",
-            ["/", namespace, "/controller_manager"],
+    # standard FollowJointTrajectory controller (dsr_moveit_controller).
+    # bringup_real_31.sh / skill_api.launch.py usually already spawn+activate it;
+    # re-spawning an *active* controller makes the spawner fail at the configure
+    # step ("Failed to configure controller", exit 1) — noisy but harmless.
+    # So skip the spawn when it is already active; otherwise spawn it. The
+    # `timeout` covers the standalone case where controller_manager isn't up yet
+    # (query fails -> grep no-match -> spawn).
+    dsr_moveit_controller_spawner = ExecuteProcess(
+        cmd=[
+            "bash", "-c",
+            [
+                "if timeout 5 ros2 control list_controllers -c /", namespace,
+                "/controller_manager 2>/dev/null "
+                "| grep -qE 'dsr_moveit_controller.*active'; then "
+                "echo '[recovery] dsr_moveit_controller already active -> skip spawn'; "
+                "else ros2 run controller_manager spawner dsr_moveit_controller "
+                "--controller-manager /", namespace, "/controller_manager; fi",
+            ],
         ],
         output="screen",
     )
