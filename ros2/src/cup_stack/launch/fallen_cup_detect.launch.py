@@ -54,8 +54,9 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument(
                 "device",
-                default_value="cpu",
-                description="'cpu' 또는 CUDA 디바이스 인덱스('0')",
+                default_value="cuda",
+                description="'cuda'(GPU) 또는 'cpu'. '0' 은 INTEGER 로 파싱돼 "
+                            "STRING 파라미터와 타입 불일치 → 'cuda' 사용.",
             ),
             DeclareLaunchArgument(
                 "image_topic",
