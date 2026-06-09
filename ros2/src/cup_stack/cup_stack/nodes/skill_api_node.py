@@ -38,7 +38,8 @@ from cup_stack.skills.pick_cup_skill import PickCupSkill
 from cup_stack.skills.place_cup_at import PlaceCupAtSkill, PlaceSpec
 from cup_stack.skills.pyramid_plan import PyramidStackPlan, SourceStack
 from cup_stack.skills.base import PickSpec
-from cup_stack.skills.scan_skill import ScanSkill
+from cup_stack.tasks.scan import ScanTask
+from cup_stack.tasks.scan_square import ScanSquareTask
 
 # Relative under /dsr01; resolves to /dsr01/dsr_moveit_controller/...
 _FJT_ACTION_NAME = "dsr_moveit_controller/follow_joint_trajectory"
@@ -481,7 +482,16 @@ def skill_pyramid_step(req: PyramidStepRequest) -> SkillResponse:
                 name=req.slot or "pyramid_step",
             )
             skill = PlaceCupAtSkill(_runtime, place)
-            outcome["ok"] = skill.execute(pick, on_placed=placed.set)
+            ok = skill.execute(pick, on_placed=placed.set)
+            outcome["ok"] = ok
+            # After a successful place, return the arm to HOME (the same joint
+            # HOME as the startup move_home) so the exo camera sees the placed
+            # cup — not the arm hovering over it — before the caller reads the
+            # world. Without this the verifier never marks the slot occupied and
+            # the LLM loop stalls on "pending world update". Best-effort: a home
+            # failure is logged but still reported as a successful place.
+            if ok and not _runtime.try_move_home():
+                _runtime.logger.warn("post-place move_home failed (continuing)")
         except Exception as exc:  # noqa: BLE001 - report via response
             outcome["error"] = str(exc)
             _runtime.logger.error(f"pyramid_step failed: {exc}")
@@ -491,29 +501,35 @@ def skill_pyramid_step(req: PyramidStepRequest) -> SkillResponse:
 
     threading.Thread(target=_run, daemon=True).start()
 
-    # Reply at place time (release) or, on failure before the place,
-    # when the skill aborts.
-    while not placed.wait(timeout=0.2):
-        if finished.is_set():
-            err = f" error={outcome['error']}" if outcome["error"] else ""
-            return SkillResponse(
-                success=outcome["ok"], skill="pyramid",
-                detail=f"{detail}{err}",
-            )
+    # Reply only after the FULL motion finishes: place + lift + return HOME.
+    # (Previously replied at release with the lift running async, but the caller
+    # reads the world immediately after the reply, so the arm must already be
+    # clear of the exo camera by then.) Runs synchronously → call this endpoint
+    # over localhost, not the Cloudflare tunnel (which 504s past ~60s).
+    finished.wait()
+    err = f" error={outcome['error']}" if outcome["error"] else ""
+    suffix = " (placed + homed)" if outcome["ok"] else err
     return SkillResponse(
-        success=True, skill="pyramid",
-        detail=f"{detail} (placed; final lift in progress)",
+        success=outcome["ok"], skill="pyramid",
+        detail=f"{detail}{suffix}",
     )
 
 
 @app.post("/skill/scan", response_model=SkillResponse)
 def skill_scan() -> SkillResponse:
-    """Launch the existing scan node and wait for completion."""
+    """Run the 2-direction scan reusing skill_api's own MoveItPy runtime.
 
+    Was launching scan.launch.py as a subprocess, which spun up a SECOND
+    MoveItPy in the same /<ns>; its planning-scene-monitor collided with this
+    node's live MoveItPy and the scan node died at init ("Unable to configure
+    planning scene monitor"). Running ScanTask against the existing _runtime
+    avoids the contention entirely.
+    """
+
+    _require_ready()
     _check_busy()
     try:
-        skill = ScanSkill(logger=_runtime.logger)
-        ok = skill.execute()
+        ok = ScanTask(_runtime).try_execute()
         return SkillResponse(success=ok, skill="scan")
     finally:
         _lock.release()
@@ -521,21 +537,17 @@ def skill_scan() -> SkillResponse:
 
 @app.post("/skill/scan_square", response_model=SkillResponse)
 def skill_scan_square() -> SkillResponse:
-    """Launch the 4-corner square scan node and wait for completion.
+    """Run the 4-corner square scan reusing skill_api's own MoveItPy runtime.
 
     Camera stays fixed downward; the EE traces an axis-aligned rectangle in
-    XY at the HOME EE height, then returns to the start pose. Reuses the
-    generic ScanSkill wrapper pointed at ``scan_square.launch.py``.
+    XY at the HOME EE height, then returns to the start pose. Like /skill/scan,
+    this reuses _runtime instead of launching a second MoveItPy.
     """
 
+    _require_ready()
     _check_busy()
     try:
-        skill = ScanSkill(
-            logger=_runtime.logger,
-            launch_file="scan_square.launch.py",
-            success_marker="Square scan complete",
-        )
-        ok = skill.execute()
+        ok = ScanSquareTask(_runtime).try_execute()
         return SkillResponse(success=ok, skill="scan_square")
     finally:
         _lock.release()
