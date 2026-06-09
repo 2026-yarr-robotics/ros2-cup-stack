@@ -63,12 +63,12 @@ class ScanConfig:
 
     # pos1: joint-space (PTP) — J1~J6 (단위: degree)
     pos1_joints_deg: tuple[float, ...] = (
-         57.4585,   # J1
-         10.3361,   # J2
-         75.0595,   # J3
-        -31.1839,   # J4
-        127.2512,   # J5
-         44.6653,   # J6
+        103.4671,   # J1
+         -4.3731,   # J2
+        100.2539,   # J3
+        -29.3674,   # J4
+        115.5776,   # J5
+       -139.6331,   # J6
     )
 
     # pos2: joint-space (PTP) — J1~J6 (단위: degree)
