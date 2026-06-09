@@ -1,8 +1,8 @@
 """Task that traces an axis-aligned square with the camera fixed downward.
 
-2방향(pos1/pos2) 스캔(`scan.py`)과 달리, 카메라를 계속 하향(``DOWN_ORI``)으로
+pos1 단일 자세 스캔(`scan.py`)과 달리, 카메라를 계속 하향(``DOWN_ORI``)으로
 고정한 채 base_link XY 평면에서 사각형 네 꼭짓점을 순회한다. Z 는 HOME 자세의
-EE 높이(런타임 FK)를 그대로 사용한다. 시작/복귀 위치는 2방향 스캔과 동일하게
+EE 높이(런타임 FK)를 그대로 사용한다. 시작/복귀 위치는 scan 과 동일하게
 시작 시점의 joint 자세를 캡처해 마지막에 복귀한다.
 
 Sequence

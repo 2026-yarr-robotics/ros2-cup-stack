@@ -51,14 +51,12 @@ class MotionConfig:
 class ScanConfig:
     """Scan task configuration.
 
-    pos1: 스캔 시작 joint 자세 (PTP). 현재 로봇 위치 기준.
-    pos2: pos1에서 LIN으로 이동할 끝점 (x, y). z는 pos1 EE 높이 사용.
+    pos1: 스캔 joint 자세 (PTP). 현재 로봇 위치 기준. scan 은 pos1 로 이동해
+          dwell_sec 만큼 대기한 뒤 초기 위치로 복귀한다.
 
     수정 방법
       pos1 — 로봇을 원하는 자세로 이동 후 degree 값 교체:
               ros2 topic echo /joint_states --once
-      pos2  — 로봇을 끝점으로 이동 후 EE (x, y) 교체:
-              ros2 topic echo /ee_pose --once
     """
 
     # pos1: joint-space (PTP) — J1~J6 (단위: degree)
@@ -71,21 +69,11 @@ class ScanConfig:
        -139.6331,   # J6
     )
 
-    # pos2: joint-space (PTP) — J1~J6 (단위: degree)
-    pos2_joints_deg: tuple[float, ...] = (
-        -42.1911,   # J1
-         12.8098,   # J2
-         66.9024,   # J3
-         25.0818,   # J4
-        107.6920,   # J5
-        -18.8562,   # J6
-    )
-
-    # 각 PTP 웨이포인트 도달 후 대기 시간 (초)
-    dwell_sec: float = 5.0
+    # PTP 웨이포인트(pos1) 도달 후 대기 시간 (초)
+    dwell_sec: float = 3.0
 
     # ── 4방향 사각형 스캔 (scan square) ───────────────────────────────
-    # 2방향(pos1/pos2) 스캔과 달리, 카메라를 계속 하향(DOWN_ORI)으로 고정한
+    # pos1 단일 자세 스캔과 달리, 카메라를 계속 하향(DOWN_ORI)으로 고정한
     # 채 base_link XY 평면에서 축 정렬 사각형의 네 꼭짓점을 순회한다. Z 는
     # HOME 자세의 EE 높이(런타임 FK)를 그대로 사용하고, 시작/복귀 위치는
     # 2방향 스캔과 동일하게 시작 시점의 joint 자세를 캡처해 마지막에 복귀한다.
@@ -100,10 +88,6 @@ class ScanConfig:
     @property
     def pos1_joints_rad(self) -> list[float]:
         return [math.radians(d) for d in self.pos1_joints_deg]
-
-    @property
-    def pos2_joints_rad(self) -> list[float]:
-        return [math.radians(d) for d in self.pos2_joints_deg]
 
     @property
     def square_corners_xy(self) -> tuple[tuple[float, float], ...]:

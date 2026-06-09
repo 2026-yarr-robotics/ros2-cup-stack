@@ -1,9 +1,8 @@
-"""Task that traces a scan line using joint-space moves only.
+"""Task that moves to the scan pose using joint-space moves only.
 
 Sequence
-  [0] PTP : 초기 위치 → pos1  (joint-space)
-  [1] PTP : pos1      → pos2  (joint-space)
-  [2] PTP : pos2      → 초기 위치  (joint-space)
+  [0] PTP : 초기 위치 → pos1  (joint-space) — pos1 에서 dwell
+  [1] PTP : pos1      → 초기 위치  (joint-space)
 """
 
 import math
@@ -100,13 +99,8 @@ class ScanTask:
         if not self._ptp("pos1", self.cfg.pos1_joints_rad):
             return False
 
-        # [1] PTP: pos1 → pos2
-        self.logger.info("[1] PTP → pos2")
-        if not self._ptp("pos2", self.cfg.pos2_joints_rad):
-            return False
-
-        # [2] PTP: pos2 → 초기 위치
-        self.logger.info("[2] PTP → 초기 위치")
+        # [1] PTP: pos1 → 초기 위치
+        self.logger.info("[1] PTP → 초기 위치")
         if not self._ptp("초기 위치", start_joints):
             return False
 
