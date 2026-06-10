@@ -91,26 +91,28 @@ class CupStackRuntime:
         params = PlanRequestParameters(self.robot)
         params.planning_pipeline = "pilz_industrial_motion_planner"
         params.planner_id = "LIN"
-        # Halved from the PTP/OMPL baseline (0.4/0.2). LIN is used for
-        # descend (gripper into the cup) and lift (cup in gripper); both
-        # benefit from a smaller motion budget than free-space approach.
-        params.max_velocity_scaling_factor = 0.2
-        params.max_acceleration_scaling_factor = 0.1
+        # LIN is Cartesian: near a singularity joint velocity blows up to hold
+        # the Cartesian speed. Even non-high moves can be near-singular at
+        # extended reach — build_pyramid's far grid picks (x≈0.35, y≈±0.2) spiked
+        # J3 to 212 deg/s (> 180 limit → alarm 1908) at the old 0.2 scale. Drop
+        # the base LIN scale to 0.1 so all descend/lift moves keep headroom under
+        # the joint limits (J1/J2=150, J3=180, J4-6=225 deg/s).
+        params.max_velocity_scaling_factor = 0.1
+        params.max_acceleration_scaling_factor = 0.08
         params.planning_time = 2.0
         return params
 
     def _make_lin_slow_params(self) -> PlanRequestParameters:
-        # LIN profile for the near-singularity high-Z zone (z >= singular_z).
-        # There a Cartesian straight-line move makes joint velocity blow up to
-        # hold the Cartesian speed; the regular 0.2 LIN scale produced
-        # ~256 deg/s on a wrist joint (> 225 limit → controller alarm 1908).
-        # Halving the scale again gives ~2x headroom under the limit while
-        # keeping the move straight (needed to extract/insert a cup cleanly).
+        # LIN profile for the worst near-singularity zone (high-Z, z >= singular_z,
+        # near full vertical reach). The unstack 3m extraction spiked a wrist
+        # joint to 256 deg/s (> 225 limit) at the old 0.2 scale; halving the base
+        # again to 0.05 gives ~4x headroom there. Used for the high pick
+        # descend/lift and the high place extra-lift.
         params = PlanRequestParameters(self.robot)
         params.planning_pipeline = "pilz_industrial_motion_planner"
         params.planner_id = "LIN"
-        params.max_velocity_scaling_factor = 0.1
-        params.max_acceleration_scaling_factor = 0.05
+        params.max_velocity_scaling_factor = 0.05
+        params.max_acceleration_scaling_factor = 0.04
         params.planning_time = 2.0
         return params
 
