@@ -12,7 +12,7 @@ from moveit_msgs.msg import Constraints, JointConstraint
 
 from .config import DOWN_ORI, GripperConfig, MotionConfig, WorkspaceConfig
 from .geometry import clamp_workspace, clamp_z
-from .onrobot import RG
+from .onrobot_sim import make_gripper
 
 
 class CupStackRuntime:
@@ -34,7 +34,7 @@ class CupStackRuntime:
         self.workspace = workspace_config or WorkspaceConfig()
 
         try:
-            self.gripper = RG(
+            self.gripper = make_gripper(
                 self.gripper_config.name,
                 self.gripper_config.toolcharger_ip,
                 self.gripper_config.toolcharger_port,
