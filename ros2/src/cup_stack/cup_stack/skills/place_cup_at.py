@@ -81,9 +81,16 @@ class PlaceCupAtSkill(Skill):
         full_twist = make_twist_orientation(cfg.place_twist_deg)
 
         # ── Pick ─────────────────────────────────────────────────────
-        log.info("  [1] pick XY move @ PICK_SAFE_Z")
+        # Lateral approach to the pick must clear any cups standing at the pick
+        # site. For high picks (unstacking a pyramid's upper tiers — e.g. 3m at
+        # z≈0.504, above pick_safe_z) a fixed pick_safe_z drags the open gripper
+        # through the standing cups; approach one cup-body above the pick (mirrors
+        # the place-travel lift), capped at travel_z_max, then descend straight down.
+        pick_approach_z = max(cfg.pick_safe_z, pick.z + cfg.layer_height + 0.03)
+        pick_approach_z = min(pick_approach_z, cfg.travel_z_max)
+        log.info(f"  [1] pick XY move @ z={pick_approach_z:.3f}")
         if not r.try_move_to_pose(
-            pick.x, pick.y, cfg.pick_safe_z, cfg.safe_z_min, ori=pick_ori,
+            pick.x, pick.y, pick_approach_z, cfg.safe_z_min, ori=pick_ori,
         ):
             return False
         log.info("  [2] gripper OPEN")
@@ -96,9 +103,9 @@ class PlaceCupAtSkill(Skill):
         log.info("  [4] GRIP")
         if not r.try_grip_cup(cfg.grip_sleep_sec):
             return False
-        log.info("  [5] lift -> PICK_SAFE_Z")
+        log.info(f"  [5] lift -> z={pick_approach_z:.3f}")
         if not r.try_move_to_pose(
-            pick.x, pick.y, cfg.pick_safe_z, cfg.safe_z_min,
+            pick.x, pick.y, pick_approach_z, cfg.safe_z_min,
             ori=pick_ori, lin=True,
         ):
             return False
