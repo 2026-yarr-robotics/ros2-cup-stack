@@ -88,11 +88,36 @@ class PlaceCupAtSkill(Skill):
         # the place-travel lift), capped at travel_z_max, then descend straight down.
         pick_approach_z = max(cfg.pick_safe_z, pick.z + cfg.layer_height + 0.03)
         pick_approach_z = min(pick_approach_z, cfg.travel_z_max)
-        log.info(f"  [1] pick XY move @ z={pick_approach_z:.3f}")
-        if not r.try_move_to_pose(
-            pick.x, pick.y, pick_approach_z, cfg.safe_z_min, ori=pick_ori,
-        ):
-            return False
+        if pick_approach_z >= cfg.singular_z:
+            # Up-over approach for high picks (unstacking upper tiers 3m/2l/2r).
+            # The arm starts at HOME (z≈0.45) each step; a direct diagonal to the
+            # high pick over the standing pyramid would clip the cups. Ascend in
+            # place to the clearance height first [0], then traverse to the pick
+            # at that constant Z [1]. Straight LIN holds Z; slow profile keeps
+            # joint velocity within limits near the singular zone.
+            cur_x, cur_y = r.current_ee_xy()
+            cur_z = float(r.current_ee_matrix()[2, 3])
+            if cur_z < pick_approach_z - 1e-3:
+                log.info(f"  [0] ascend in place -> z={pick_approach_z:.3f}")
+                if not r.try_move_to_pose(
+                    cur_x, cur_y, pick_approach_z, cfg.safe_z_min,
+                    ori=pick_ori, lin=True, slow=True,
+                ):
+                    log.warn("  [0] ascend-in-place failed; continuing")
+            log.info(f"  [1] pick XY traverse @ z={pick_approach_z:.3f}")
+            if not r.try_move_to_pose(
+                pick.x, pick.y, pick_approach_z, cfg.safe_z_min,
+                ori=pick_ori, lin=True, slow=True,
+            ):
+                return False
+        else:
+            # Low picks (bottom tier / source nest): a single free-space PTP
+            # approach to above the pick is clear and faster.
+            log.info(f"  [1] pick XY move @ z={pick_approach_z:.3f}")
+            if not r.try_move_to_pose(
+                pick.x, pick.y, pick_approach_z, cfg.safe_z_min, ori=pick_ori,
+            ):
+                return False
         log.info("  [2] gripper OPEN")
         r.try_open_gripper(cfg.open_sleep_sec)
         log.info(f"  [3] pick descend -> z={pick.z:.3f}")

@@ -117,7 +117,16 @@ class CupStackRuntime:
         return params
 
     def try_move_home(self) -> bool:
-        """Plan and execute the configured HOME joint state."""
+        """Plan and execute the configured HOME joint state.
+
+        Two-stage retract so a finished pyramid (or any cups) under the path is
+        not knocked over: keep the current Z, traverse in XY to the HOME XY,
+        then descend to the HOME joint configuration. A direct joint-space move
+        can dip the EE through cups standing between the current pose and HOME —
+        e.g. when the pyramid top (z≈0.51) sits higher than HOME (z≈0.45) and
+        the home XY is offset from the pyramid; cups are not in the planning
+        scene, so the planner cannot avoid them.
+        """
 
         home_state = RobotState(self.robot_model)
         home_state.set_joint_group_positions(
@@ -125,6 +134,37 @@ class CupStackRuntime:
             self.motion.home_joints_rad,
         )
         home_state.update()
+        home_T = np.asarray(
+            home_state.get_global_link_transform(self.motion.ee_link),
+            dtype=float,
+        )
+        home_x, home_y, home_z = (
+            float(home_T[0, 3]), float(home_T[1, 3]), float(home_T[2, 3]),
+        )
+
+        # Stage 1: keep the current (high) Z and traverse in XY to the HOME XY
+        # so the EE clears anything built below (e.g. the pyramid top). Use a
+        # straight LIN move to hold Z constant; slow profile when high (near the
+        # singular zone, z >= 0.50 — matches SkillStackConfig.singular_z). Skip
+        # when already at/below HOME height (nothing to clear).
+        try:
+            cur_z = float(self.current_ee_matrix()[2, 3])
+        except Exception as exc:  # noqa: BLE001 - best-effort; fall back to direct
+            self.logger.warn(f"current EE Z unavailable ({exc}); direct HOME move")
+            cur_z = home_z
+        if cur_z > home_z + 1e-3:
+            self.logger.info(
+                f"HOME[1] keep z={cur_z:.3f} → HOME xy=({home_x:.3f},{home_y:.3f})"
+            )
+            if not self.try_move_to_pose(
+                home_x, home_y, cur_z, self.workspace.z_min,
+                lin=True, slow=cur_z >= 0.50,
+            ):
+                self.logger.warn(
+                    "HOME[1] XY traverse failed; falling back to direct HOME"
+                )
+
+        # Stage 2: descend to the exact HOME joint configuration.
         self.arm.set_start_state_to_current_state()
         self.arm.set_goal_state(robot_state=home_state)
         plan_result = self.arm.plan(parameters=self.ompl_params)
