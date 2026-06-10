@@ -98,6 +98,7 @@ class PlaceCupAtSkill(Skill):
         log.info(f"  [3] pick descend -> z={pick.z:.3f}")
         if not r.try_move_to_pose(
             pick.x, pick.y, pick.z, cfg.safe_z_min, ori=pick_ori, lin=True,
+            slow=pick.z >= cfg.singular_z,
         ):
             return False
         log.info("  [4] GRIP")
@@ -106,7 +107,7 @@ class PlaceCupAtSkill(Skill):
         log.info(f"  [5] lift -> z={pick_approach_z:.3f}")
         if not r.try_move_to_pose(
             pick.x, pick.y, pick_approach_z, cfg.safe_z_min,
-            ori=pick_ori, lin=True,
+            ori=pick_ori, lin=True, slow=pick_approach_z >= cfg.singular_z,
         ):
             return False
 
@@ -130,7 +131,7 @@ class PlaceCupAtSkill(Skill):
             log.info(f"  [5b] extra lift -> z={travel_z:.3f}")
             if not r.try_move_to_pose(
                 pick.x, pick.y, travel_z, cfg.safe_z_min,
-                ori=pick_ori, lin=True,
+                ori=pick_ori, lin=True, slow=travel_z >= cfg.singular_z,
             ):
                 return False
         log.info(

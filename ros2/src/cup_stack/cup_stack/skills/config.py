@@ -57,6 +57,12 @@ class SkillStackConfig:
     # Minimum clearance kept between travel_z and the slot's place_z so
     # the held cup never drags across the layer it will be placed onto.
     travel_clearance: float = 0.03
+    # Above this gripper Z the M0609 (down-facing EE) is near full vertical
+    # reach — close to a wrist/elbow singularity where a Cartesian LIN move
+    # makes joint velocity spike past the 225 deg/s joint limit (controller
+    # alarm 1908). LIN moves at/above this Z use the reduced-velocity profile
+    # (runtime lin_slow_params) so joint speed stays within limits.
+    singular_z: float = 0.50
     pick_z_base: float = 0.313
     cup_grip_z_offset: float = 0.10
     place_z_base: float = 0.318

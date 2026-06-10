@@ -63,6 +63,7 @@ class CupStackRuntime:
         self.ompl_params = self._make_ompl_params()
         self.ptp_params = self._make_ptp_params()
         self.lin_params = self._make_lin_params()
+        self.lin_slow_params = self._make_lin_slow_params()
 
     def _make_ompl_params(self) -> PlanRequestParameters:
         params = PlanRequestParameters(self.robot)
@@ -95,6 +96,21 @@ class CupStackRuntime:
         # benefit from a smaller motion budget than free-space approach.
         params.max_velocity_scaling_factor = 0.2
         params.max_acceleration_scaling_factor = 0.1
+        params.planning_time = 2.0
+        return params
+
+    def _make_lin_slow_params(self) -> PlanRequestParameters:
+        # LIN profile for the near-singularity high-Z zone (z >= singular_z).
+        # There a Cartesian straight-line move makes joint velocity blow up to
+        # hold the Cartesian speed; the regular 0.2 LIN scale produced
+        # ~256 deg/s on a wrist joint (> 225 limit → controller alarm 1908).
+        # Halving the scale again gives ~2x headroom under the limit while
+        # keeping the move straight (needed to extract/insert a cup cleanly).
+        params = PlanRequestParameters(self.robot)
+        params.planning_pipeline = "pilz_industrial_motion_planner"
+        params.planner_id = "LIN"
+        params.max_velocity_scaling_factor = 0.1
+        params.max_acceleration_scaling_factor = 0.05
         params.planning_time = 2.0
         return params
 
@@ -137,8 +153,14 @@ class CupStackRuntime:
         ori: dict[str, float] | None = None,
         lin: bool = False,
         strict: bool = False,
+        slow: bool = False,
     ) -> bool:
-        """Plan and execute a pose move."""
+        """Plan and execute a pose move.
+
+        ``slow`` selects the reduced-velocity LIN profile (lin_slow_params) for
+        near-singularity high-Z moves so joint velocity stays under the limit.
+        Only affects LIN moves (PTP already respects joint velocity limits).
+        """
 
         cx, cy, cz = clamp_workspace(x, y, z, self.workspace, self.logger)
         cz = clamp_z(cz, safe_z_min)  # safe_z_min 을 추가 하한으로 적용
@@ -158,7 +180,10 @@ class CupStackRuntime:
             pose_link=self.motion.ee_link,
         )
 
-        plan_params = self.lin_params if lin else self.ptp_params
+        if lin:
+            plan_params = self.lin_slow_params if slow else self.lin_params
+        else:
+            plan_params = self.ptp_params
         plan_result = self.arm.plan(parameters=plan_params)
         if not plan_result and lin and not strict:
             self.logger.warn("LIN planning failed; retrying with PTP")
