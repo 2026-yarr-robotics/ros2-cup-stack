@@ -116,16 +116,15 @@ class CupStackRuntime:
         params.planning_time = 2.0
         return params
 
-    def try_move_home(self) -> bool:
+    def try_move_home(self, z_offset_m: float = 0.0, x_offset_m: float = 0.0) -> bool:
         """Plan and execute the configured HOME joint state.
 
         Two-stage retract so a finished pyramid (or any cups) under the path is
-        not knocked over: keep the current Z, traverse in XY to the HOME XY,
-        then descend to the HOME joint configuration. A direct joint-space move
-        can dip the EE through cups standing between the current pose and HOME —
-        e.g. when the pyramid top (z≈0.51) sits higher than HOME (z≈0.45) and
-        the home XY is offset from the pyramid; cups are not in the planning
-        scene, so the planner cannot avoid them.
+        not knocked over: traverse in XY at a clearance Z to the HOME XY, then
+        either descend to the HOME joint configuration or, when ``z_offset_m`` is
+        positive, finish at a lifted Cartesian HOME pose (HOME Z + offset).
+        This lets post-place recovery keep the camera/arm higher without changing
+        the configured joint HOME used at startup.
         """
 
         home_state = RobotState(self.robot_model)
@@ -142,27 +141,64 @@ class CupStackRuntime:
             float(home_T[0, 3]), float(home_T[1, 3]), float(home_T[2, 3]),
         )
 
-        # Stage 1: keep the current (high) Z and traverse in XY to the HOME XY
-        # so the EE clears anything built below (e.g. the pyramid top). Use a
-        # straight LIN move to hold Z constant; slow profile when high (near the
-        # singular zone, z >= 0.50 — matches SkillStackConfig.singular_z). Skip
-        # when already at/below HOME height (nothing to clear).
+        z_offset_m = max(0.0, float(z_offset_m))
+        x_offset_m = float(x_offset_m)
+        lifted_home_x = min(max(home_x + x_offset_m, self.workspace.x_min),
+                            self.workspace.x_max)
+        lifted_home_y = home_y
+        lifted_home_z = min(home_z + z_offset_m, self.workspace.z_max)
+        clearance_z = max(home_z, lifted_home_z)
+
+        # Stage 1: move at a clearance Z to the HOME XY so the EE clears
+        # anything built below. If a lifted HOME is requested, first raise in
+        # place to the lifted target Z and finish there instead of descending to
+        # the exact joint HOME.
         try:
-            cur_z = float(self.current_ee_matrix()[2, 3])
+            cur_T = self.current_ee_matrix()
+            cur_x, cur_y, cur_z = (
+                float(cur_T[0, 3]), float(cur_T[1, 3]), float(cur_T[2, 3]),
+            )
         except Exception as exc:  # noqa: BLE001 - best-effort; fall back to direct
-            self.logger.warn(f"current EE Z unavailable ({exc}); direct HOME move")
-            cur_z = home_z
-        if cur_z > home_z + 1e-3:
+            self.logger.warn(f"current EE pose unavailable ({exc}); direct HOME move")
+            cur_x, cur_y, cur_z = home_x, home_y, home_z
+
+        if cur_z < clearance_z - 1e-3:
             self.logger.info(
-                f"HOME[1] keep z={cur_z:.3f} → HOME xy=({home_x:.3f},{home_y:.3f})"
+                f"HOME[0] lift in place z={cur_z:.3f} → {clearance_z:.3f}"
             )
             if not self.try_move_to_pose(
-                home_x, home_y, cur_z, self.workspace.z_min,
-                lin=True, slow=cur_z >= 0.50,
+                cur_x, cur_y, clearance_z, self.workspace.z_min,
+                lin=True, slow=clearance_z >= 0.50,
+            ):
+                self.logger.warn(
+                    "HOME[0] lift failed; falling back to current Z traverse"
+                )
+                clearance_z = cur_z
+
+        traverse_z = max(cur_z, clearance_z)
+        if traverse_z > home_z + 1e-3:
+            self.logger.info(
+                f"HOME[1] keep z={traverse_z:.3f} → HOME xy=({lifted_home_x:.3f},{lifted_home_y:.3f})"
+            )
+            if not self.try_move_to_pose(
+                lifted_home_x, lifted_home_y, traverse_z, self.workspace.z_min,
+                lin=True, slow=traverse_z >= 0.50,
             ):
                 self.logger.warn(
                     "HOME[1] XY traverse failed; falling back to direct HOME"
                 )
+
+        if z_offset_m > 1e-6:
+            self.logger.info(
+                f"HOME[2] lifted cartesian home x={lifted_home_x:.3f} z={lifted_home_z:.3f} "
+                f"(x_offset={x_offset_m:+.3f}, z_offset=+{z_offset_m:.3f})"
+            )
+            if abs(traverse_z - lifted_home_z) > 1e-3:
+                return self.try_move_to_pose(
+                    lifted_home_x, lifted_home_y, lifted_home_z, self.workspace.z_min,
+                    lin=True, slow=lifted_home_z >= 0.50,
+                )
+            return True
 
         # Stage 2: descend to the exact HOME joint configuration.
         self.arm.set_start_state_to_current_state()

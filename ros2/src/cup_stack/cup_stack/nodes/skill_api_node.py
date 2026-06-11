@@ -490,8 +490,8 @@ def skill_pyramid_step(req: PyramidStepRequest) -> SkillResponse:
             # world. Without this the verifier never marks the slot occupied and
             # the LLM loop stalls on "pending world update". Best-effort: a home
             # failure is logged but still reported as a successful place.
-            if ok and not _runtime.try_move_home():
-                _runtime.logger.warn("post-place move_home failed (continuing)")
+            if ok and not _runtime.try_move_home(z_offset_m=0.08, x_offset_m=-0.05):
+                _runtime.logger.warn("post-place lifted move_home failed (continuing)")
         except Exception as exc:  # noqa: BLE001 - report via response
             outcome["error"] = str(exc)
             _runtime.logger.error(f"pyramid_step failed: {exc}")
