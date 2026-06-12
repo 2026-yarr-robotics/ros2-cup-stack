@@ -116,6 +116,7 @@ class PlaceCupAtSkill(Skill):
             log.info(f"  [1] pick XY move @ z={pick_approach_z:.3f}")
             if not r.try_move_to_pose(
                 pick.x, pick.y, pick_approach_z, cfg.safe_z_min, ori=pick_ori,
+                fast=True,
             ):
                 return False
         log.info("  [2] gripper OPEN")
@@ -159,6 +160,7 @@ class PlaceCupAtSkill(Skill):
         if not r.try_move_to_pose(
             pick.x, pick.y, first_lift_z, cfg.safe_z_min,
             ori=pick_ori, lin=True, slow=first_lift_z >= cfg.singular_z,
+            fast=True,
         ):
             return False
 
@@ -168,6 +170,7 @@ class PlaceCupAtSkill(Skill):
             if not r.try_move_to_pose(
                 pick.x, pick.y, travel_z, cfg.safe_z_min,
                 ori=pick_ori, lin=True, slow=travel_z >= cfg.singular_z,
+                fast=True,
             ):
                 return False
         log.info(
@@ -176,6 +179,7 @@ class PlaceCupAtSkill(Skill):
         )
         if not r.try_move_to_pose(
             self.place.x, self.place.y, travel_z, cfg.safe_z_min,
+            fast=True,
         ):
             return False
 
@@ -210,7 +214,7 @@ class PlaceCupAtSkill(Skill):
         log.info(f"  [9] lift -> z={lift_z:.3f}")
         if not r.try_move_to_pose(
             self.place.x, self.place.y, lift_z, cfg.safe_z_min,
-            ori=full_twist,
+            ori=full_twist, fast=True,
         ):
             return False
         return True
