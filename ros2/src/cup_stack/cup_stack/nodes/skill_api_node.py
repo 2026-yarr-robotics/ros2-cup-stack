@@ -484,14 +484,18 @@ def skill_pyramid_step(req: PyramidStepRequest) -> SkillResponse:
             skill = PlaceCupAtSkill(_runtime, place)
             ok = skill.execute(pick, on_placed=placed.set)
             outcome["ok"] = ok
-            # After a successful place, return the arm to HOME (the same joint
-            # HOME as the startup move_home) so the exo camera sees the placed
-            # cup — not the arm hovering over it — before the caller reads the
-            # world. Without this the verifier never marks the slot occupied and
-            # the LLM loop stalls on "pending world update". Best-effort: a home
-            # failure is logged but still reported as a successful place.
-            if ok and not _runtime.try_move_home(z_offset_m=0.08, x_offset_m=-0.05):
-                _runtime.logger.warn("post-place lifted move_home failed (continuing)")
+            # After a successful place, return the arm to the exact joint HOME
+            # (the same as the startup move_home — unified with the fallen-cup
+            # sense pose) so (1) the exo camera sees the placed cup, not the
+            # arm hovering over it (without this the verifier never marks the
+            # slot occupied and the LLM loop stalls), and (2) the hand camera
+            # parks in the pose whose /fallen_cups reading is valid. The
+            # previous lifted home (z/x offsets) ended in a cartesian DOWN
+            # orientation that broke the hand-eye viewing angle. Best-effort:
+            # a home failure is logged but still reported as a successful
+            # place.
+            if ok and not _runtime.try_move_home():
+                _runtime.logger.warn("post-place move_home failed (continuing)")
         except Exception as exc:  # noqa: BLE001 - report via response
             outcome["error"] = str(exc)
             _runtime.logger.error(f"pyramid_step failed: {exc}")
