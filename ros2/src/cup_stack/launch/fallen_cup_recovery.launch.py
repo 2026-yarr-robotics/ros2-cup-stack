@@ -17,6 +17,8 @@ returns HOME and exits.
 Launched by the dashboard server as the ``fallen_cup_recovery`` TASK command.
 """
 
+import os
+
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -28,6 +30,21 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import PushRosNamespace
 from launch_ros.substitutions import FindPackageShare
+
+# Isaac 디지털 트윈 브링업(start_isaac.sh)이 bringup 에이전트 창에 심는 env —
+# 실기(env 미설정)는 기존 기본값 그대로다.
+#   FALLEN_CUP_GRIPPER_BACKEND=topic  → 그리퍼를 SimRG 토픽 경로로
+#   FALLEN_CUP_PLACE_TILT_DEG=20.0    → stand release 를 기울여서 (중력 세움
+#                                       모델; Isaac bridge 가 wobble 로 연출)
+#   ROBOT_API_BASE=http://localhost   → pyramid config 폴링을 로컬 서버로 핀
+#                                       (기본 Cloudflare PROD 는 sim 에서 오답)
+_GRIPPER_BACKEND_DEFAULT = os.environ.get("FALLEN_CUP_GRIPPER_BACKEND", "")
+_PLACE_TILT_DEFAULT = os.environ.get("FALLEN_CUP_PLACE_TILT_DEG", "0.0")
+_API_BASE = os.environ.get("ROBOT_API_BASE", "").rstrip("/")
+_PYRAMID_CFG_DEFAULT = (
+    f"{_API_BASE}/api/robot/config/pyramid" if _API_BASE
+    else "https://yarr-api-31.simplyimg.com/api/robot/config/pyramid"
+)
 
 
 def generate_launch_description():
@@ -97,6 +114,24 @@ def generate_launch_description():
                 default_value="nan",
                 description="NaN이 아니면 인식 yaw 무시하고 강제 값 사용",
             ),
+            DeclareLaunchArgument(
+                "gripper_backend",
+                default_value=_GRIPPER_BACKEND_DEFAULT,
+                description="''(레거시) | onrobot | topic(Isaac SimRG) | none "
+                            "— 기본값은 env FALLEN_CUP_GRIPPER_BACKEND",
+            ),
+            DeclareLaunchArgument(
+                "place_cup_tilt_deg",
+                default_value=_PLACE_TILT_DEFAULT,
+                description="place 모드 release 기울임(deg) — 기본값은 env "
+                            "FALLEN_CUP_PLACE_TILT_DEG (Isaac: 20)",
+            ),
+            DeclareLaunchArgument(
+                "pyramid_config_url",
+                default_value=_PYRAMID_CFG_DEFAULT,
+                description="pyramid center/degree 폴링 엔드포인트 — env "
+                            "ROBOT_API_BASE 가 있으면 그쪽으로 핀",
+            ),
             dsr_moveit_controller_spawner,
             GroupAction(
                 [
@@ -111,6 +146,15 @@ def generate_launch_description():
                             ),
                             "dry_run": LaunchConfiguration("dry_run"),
                             "sim": LaunchConfiguration("sim"),
+                            "gripper_backend": LaunchConfiguration(
+                                "gripper_backend"
+                            ),
+                            "place_cup_tilt_deg": LaunchConfiguration(
+                                "place_cup_tilt_deg"
+                            ),
+                            "pyramid_config_url": LaunchConfiguration(
+                                "pyramid_config_url"
+                            ),
                             "cup_yaw_override_deg": LaunchConfiguration(
                                 "cup_yaw_override_deg"
                             ),
