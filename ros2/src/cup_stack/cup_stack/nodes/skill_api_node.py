@@ -15,11 +15,17 @@ POST /skill/scan_square -- launch the 4-corner square scan node
 """
 
 import threading
+import time
 
 import rclpy
 from control_msgs.action import FollowJointTrajectory
 from rclpy.action import ActionClient
 from rclpy.node import Node
+
+try:
+    from dsr_msgs2.srv import GetRobotState
+except ImportError:  # Doosan stack absent (e.g. pure-sim build)
+    GetRobotState = None
 
 try:
     import uvicorn
@@ -318,6 +324,71 @@ _nest_inc: float = 0.012
 # the spawner-vs-skill_api startup race no longer leaks ABORTED picks.
 _controller_ready: bool = False
 
+# ── STANDBY gate (docs/joint_servo_movel_conflict.md) ──────────────────────
+# MoveIt executes via servoj_rt streaming, which leaves the DRCF in
+# JOINT_SERVO; a native movel issued in that state is rejected
+# ("state[JOINT_SERVO] rejected event[eMoveL]") and silently does nothing.
+# Auto servo-off is disabled at bringup, so the controller only drifts back
+# to STANDBY ~1.4 s after the stream stops.  Before replying / clearing
+# ``busy`` we poll get_robot_state until STANDBY (fix option 3: poll only,
+# no servo power change) so the caller's next native movel is accepted.
+_ROBOT_STATE_STANDBY = 1  # dsr_msgs2/srv/GetRobotState.srv
+_STANDBY_SRV = "/dsr01/system/get_robot_state"
+_STANDBY_TIMEOUT_S = 3.0
+_STANDBY_POLL_S = 0.15
+_robot_state_client = None
+
+
+def _wait_robot_standby(timeout_s: float = _STANDBY_TIMEOUT_S) -> bool:
+    """Block until the DRCF reports STATE_STANDBY (best-effort).
+
+    Returns True when STANDBY was observed; False on timeout or when the
+    get_robot_state service is unavailable (sim without the Doosan stack).
+    Never raises — a gate failure must not turn a successful place into an
+    error; the caller's movel may still be rejected and can be retried.
+    Safe to call from a worker thread: the node is spun on the main thread,
+    so call_async futures complete without spinning here.
+    """
+    global _robot_state_client
+    if GetRobotState is None or _runtime is None:
+        return False
+    node = _runtime.node
+    try:
+        if _robot_state_client is None:
+            _robot_state_client = node.create_client(
+                GetRobotState, _STANDBY_SRV
+            )
+        client = _robot_state_client
+        if not client.service_is_ready() and not client.wait_for_service(
+            timeout_sec=0.5
+        ):
+            node.get_logger().warn(
+                f"{_STANDBY_SRV} unavailable; skipping STANDBY gate"
+            )
+            return False
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            future = client.call_async(GetRobotState.Request())
+            done = threading.Event()
+            future.add_done_callback(lambda _f: done.set())
+            if not done.wait(timeout=1.0):
+                future.cancel()
+                continue
+            resp = future.result()
+            if (
+                resp is not None
+                and resp.robot_state == _ROBOT_STATE_STANDBY
+            ):
+                return True
+            time.sleep(_STANDBY_POLL_S)
+        node.get_logger().warn(
+            f"robot not STANDBY within {timeout_s:.1f}s; movel may be rejected"
+        )
+        return False
+    except Exception as exc:  # noqa: BLE001 - never break the skill path
+        node.get_logger().warn(f"STANDBY gate failed: {exc}")
+        return False
+
 
 def _check_busy() -> None:
     if not _lock.acquire(blocking=False):
@@ -484,18 +555,26 @@ def skill_pyramid_step(req: PyramidStepRequest) -> SkillResponse:
             skill = PlaceCupAtSkill(_runtime, place)
             ok = skill.execute(pick, on_placed=placed.set)
             outcome["ok"] = ok
-            # After a successful place, return the arm to HOME (the same joint
-            # HOME as the startup move_home) so the exo camera sees the placed
-            # cup — not the arm hovering over it — before the caller reads the
-            # world. Without this the verifier never marks the slot occupied and
-            # the LLM loop stalls on "pending world update". Best-effort: a home
-            # failure is logged but still reported as a successful place.
-            if ok and not _runtime.try_move_home(z_offset_m=0.08, x_offset_m=-0.05):
-                _runtime.logger.warn("post-place lifted move_home failed (continuing)")
+            # After a successful place, return the arm to the exact joint HOME
+            # (the same as the startup move_home — unified with the fallen-cup
+            # sense pose) so (1) the exo camera sees the placed cup, not the
+            # arm hovering over it (without this the verifier never marks the
+            # slot occupied and the LLM loop stalls), and (2) the hand camera
+            # parks in the pose whose /fallen_cups reading is valid. The
+            # previous lifted home (z/x offsets) ended in a cartesian DOWN
+            # orientation that broke the hand-eye viewing angle. Best-effort:
+            # a home failure is logged but still reported as a successful
+            # place.
+            if ok and not _runtime.try_move_home():
+                _runtime.logger.warn("post-place move_home failed (continuing)")
         except Exception as exc:  # noqa: BLE001 - report via response
             outcome["error"] = str(exc)
             _runtime.logger.error(f"pyramid_step failed: {exc}")
         finally:
+            # servoj_rt left the DRCF in JOINT_SERVO; wait it back to
+            # STANDBY before replying so the caller's next native movel
+            # is not rejected (docs/joint_servo_movel_conflict.md).
+            _wait_robot_standby()
             finished.set()
             _lock.release()
 
