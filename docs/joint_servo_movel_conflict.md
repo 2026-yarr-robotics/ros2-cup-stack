@@ -101,5 +101,16 @@ above is expected to resolve the observed failures.
 
 ## Status
 
-Diagnosis confirmed via live repro on the real M0609. Fix mechanism (servo_off vs
-set_robot_mode vs poll-STANDBY) pending decision before implementation.
+Diagnosis confirmed via live repro on the real M0609.
+
+**Fixed (option 3, poll-STANDBY)** — `skill_api_node.py` `_wait_robot_standby()`:
+after the pyramid-step motion (place + lift + HOME) completes and before the HTTP
+reply / `busy` clear, the node polls `/dsr01/system/get_robot_state` until
+`STATE_STANDBY` (timeout 3 s, period 0.15 s). No servo power change. Best-effort:
+on timeout or when the service is absent (pure-sim build) it logs a warning and
+continues — a gate failure never turns a successful place into an error.
+
+The secondary bug (server `move_to` reporting `success:true` for a rejected
+`move_line`) remains open in the `server` submodule. The residual edge case
+(movel arriving *during* the background lift) no longer applies in the current
+synchronous reply flow — the reply itself now waits for STANDBY.
