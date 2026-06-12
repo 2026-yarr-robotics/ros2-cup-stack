@@ -129,14 +129,7 @@ class PlaceCupAtSkill(Skill):
         log.info("  [4] GRIP")
         if not r.try_grip_cup(cfg.grip_sleep_sec):
             return False
-        log.info(f"  [5] lift -> z={pick_approach_z:.3f}")
-        if not r.try_move_to_pose(
-            pick.x, pick.y, pick_approach_z, cfg.safe_z_min,
-            ori=pick_ori, lin=True, slow=pick_approach_z >= cfg.singular_z,
-        ):
-            return False
-
-        # ── Travel ───────────────────────────────────────────────────
+        # ── Travel height ────────────────────────────────────────────
         # For upper-layer slots (2l/2r/3m) the place height is at or above
         # pick_safe_z, so a lateral move at pick_safe_z drags the held cup
         # straight through cups already placed on the layer below. Lift
@@ -152,8 +145,26 @@ class PlaceCupAtSkill(Skill):
         travel_z = min(travel_z, cfg.travel_z_max)
         # Never travel below the support layer the cup will be placed onto.
         travel_z = max(travel_z, self.place.z + cfg.travel_clearance)
-        if travel_z > cfg.pick_safe_z:
-            log.info(f"  [5b] extra lift -> z={travel_z:.3f}")
+
+        # [5] lift the picked cup clear of the pick site. [5] and [5b] share
+        # the pick XY and form a colinear vertical run, so when the traverse
+        # height (travel_z) is at or above the pick-clearance height we lift
+        # straight to travel_z in a single move — the stop at pick_approach_z
+        # was a redundant zero-velocity boundary on the way up (a needless
+        # decel/accel "click"). Only when travel_z sits *below* pick_approach_z
+        # is there a genuine up-then-down corner whose intermediate stop must
+        # stay (merging it would cut the clearance corner).
+        first_lift_z = max(pick_approach_z, travel_z)
+        log.info(f"  [5] lift -> z={first_lift_z:.3f}")
+        if not r.try_move_to_pose(
+            pick.x, pick.y, first_lift_z, cfg.safe_z_min,
+            ori=pick_ori, lin=True, slow=first_lift_z >= cfg.singular_z,
+        ):
+            return False
+
+        # ── Travel ───────────────────────────────────────────────────
+        if travel_z < pick_approach_z and travel_z > cfg.pick_safe_z:
+            log.info(f"  [5b] settle -> z={travel_z:.3f}")
             if not r.try_move_to_pose(
                 pick.x, pick.y, travel_z, cfg.safe_z_min,
                 ori=pick_ori, lin=True, slow=travel_z >= cfg.singular_z,
