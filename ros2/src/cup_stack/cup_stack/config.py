@@ -33,13 +33,19 @@ class MotionConfig:
     group_name: str = "manipulator"
     base_frame: str = "base_link"
     ee_link: str = "link_6"
+    # Unified with the fallen-cup recovery sense HOME (fallen-cup-recovery
+    # dsr_practice/stand_fallen_cup.py HOME_JOINTS, captured on the real robot
+    # 2026-06-09; radians → degrees). Parking here after every place keeps the
+    # hand camera looking at the table, so the hand-eye fallen count
+    # (/fallen_cups) read while idle at HOME is valid — and the pose does not
+    # occlude the table/pyramid from the exo camera.
     home_joints_deg: tuple[float, ...] = (
-        -0.7922,
-        11.7405,
-        72.7817,
-        0.0234,
-        95.4661,
-        -0.8017,
+        -2.8391,
+        -14.9172,
+        88.4765,
+        -2.9598,
+        107.5961,
+        86.6114,
     )
 
     @property
