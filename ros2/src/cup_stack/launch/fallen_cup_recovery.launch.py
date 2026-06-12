@@ -40,6 +40,10 @@ from launch_ros.substitutions import FindPackageShare
 #                                       (기본 Cloudflare PROD 는 sim 에서 오답)
 _GRIPPER_BACKEND_DEFAULT = os.environ.get("FALLEN_CUP_GRIPPER_BACKEND", "")
 _PLACE_TILT_DEFAULT = os.environ.get("FALLEN_CUP_PLACE_TILT_DEG", "0.0")
+# Isaac: /hand_eye/boxes 의 3class 모델이 전도 컵까지 upright 로 과검출해
+# 그립 타깃 자리에 유령 장애물을 만든다 → 접근 planning 이 자기 장애물과
+# 충돌해 실패. sim 에선 끈다 (실기 기본 true 유지).
+_AVOID_UPRIGHT_DEFAULT = os.environ.get("FALLEN_CUP_AVOID_UPRIGHT", "true")
 _API_BASE = os.environ.get("ROBOT_API_BASE", "").rstrip("/")
 _PYRAMID_CFG_DEFAULT = (
     f"{_API_BASE}/api/robot/config/pyramid" if _API_BASE
@@ -132,6 +136,18 @@ def generate_launch_description():
                 description="pyramid center/degree 폴링 엔드포인트 — env "
                             "ROBOT_API_BASE 가 있으면 그쪽으로 핀",
             ),
+            DeclareLaunchArgument(
+                "avoid_upright_cups",
+                default_value=_AVOID_UPRIGHT_DEFAULT,
+                description="정상 컵 장애물 등록 — env FALLEN_CUP_AVOID_UPRIGHT "
+                            "(Isaac: false — 과검출 유령 장애물 방지)",
+            ),
+            # sim 모드 가상 컵 포즈 — 검증 툴(verify_recovery.py)이 Isaac GT
+            # 포즈를 주입해 인식 우회 E2E 를 돌릴 수 있게 패스스루.
+            DeclareLaunchArgument("sim_cup_x", default_value="0.28"),
+            DeclareLaunchArgument("sim_cup_y", default_value="0.20"),
+            DeclareLaunchArgument("sim_cup_z", default_value="0.10"),
+            DeclareLaunchArgument("sim_cup_yaw_deg", default_value="0.0"),
             dsr_moveit_controller_spawner,
             GroupAction(
                 [
@@ -154,6 +170,15 @@ def generate_launch_description():
                             ),
                             "pyramid_config_url": LaunchConfiguration(
                                 "pyramid_config_url"
+                            ),
+                            "avoid_upright_cups": LaunchConfiguration(
+                                "avoid_upright_cups"
+                            ),
+                            "sim_cup_x": LaunchConfiguration("sim_cup_x"),
+                            "sim_cup_y": LaunchConfiguration("sim_cup_y"),
+                            "sim_cup_z": LaunchConfiguration("sim_cup_z"),
+                            "sim_cup_yaw_deg": LaunchConfiguration(
+                                "sim_cup_yaw_deg"
                             ),
                             "cup_yaw_override_deg": LaunchConfiguration(
                                 "cup_yaw_override_deg"
