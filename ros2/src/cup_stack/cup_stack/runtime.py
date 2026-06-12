@@ -62,7 +62,9 @@ class CupStackRuntime:
         self.robot_model = self.robot.get_robot_model()
         self.ompl_params = self._make_ompl_params()
         self.ptp_params = self._make_ptp_params()
+        self.ptp_fast_params = self._make_ptp_fast_params()
         self.lin_params = self._make_lin_params()
+        self.lin_fast_params = self._make_lin_fast_params()
         self.lin_slow_params = self._make_lin_slow_params()
 
     def _make_ompl_params(self) -> PlanRequestParameters:
@@ -87,6 +89,22 @@ class CupStackRuntime:
         params.planning_time = 2.0
         return params
 
+    def _make_ptp_fast_params(self) -> PlanRequestParameters:
+        # Opt-in fast PTP for free-space staging/travel segments (empty
+        # approach, XY travel at clearance Z, post-release lift). PTP scales
+        # joint velocities directly so no singularity blow-up is possible:
+        # 0.6 caps the wrist at 135 deg/s (60% of the 225 limit) and J1/J2 at
+        # 90 deg/s. Acc 0.15 stays under the 0.2 oscillation guard for the
+        # position-only JTC (docs/speed_limits.md §4). NOT for the place
+        # descend ([7a]/[7b]) — stacking-contact moves keep ptp_params.
+        params = PlanRequestParameters(self.robot)
+        params.planning_pipeline = "pilz_industrial_motion_planner"
+        params.planner_id = "PTP"
+        params.max_velocity_scaling_factor = 0.6
+        params.max_acceleration_scaling_factor = 0.15
+        params.planning_time = 2.0
+        return params
+
     def _make_lin_params(self) -> PlanRequestParameters:
         params = PlanRequestParameters(self.robot)
         params.planning_pipeline = "pilz_industrial_motion_planner"
@@ -102,17 +120,32 @@ class CupStackRuntime:
         params.planning_time = 2.0
         return params
 
-    def _make_lin_slow_params(self) -> PlanRequestParameters:
-        # LIN profile for the worst near-singularity zone (high-Z, z >= singular_z,
-        # near full vertical reach). The unstack 3m extraction spiked a wrist
-        # joint to 256 deg/s (> 225 limit) at the old 0.2 scale; halving the base
-        # again to 0.05 gives ~4x headroom there. Used for the high pick
-        # descend/lift and the high place extra-lift.
+    def _make_lin_fast_params(self) -> PlanRequestParameters:
+        # Opt-in fast LIN for non-contact lift/settle segments below
+        # singular_z. Ceiling is set by the J3 evidence above: scale 0.2 hit
+        # 212 deg/s at far reach, so 0.12 keeps the same worst case at
+        # ~127 deg/s = 70% of the 180 limit (docs/speed_limits.md §4-1).
+        # Do NOT raise past 0.17 (J3 limit point) — and contact moves
+        # (pick descend, place) keep lin_params/ptp_params.
         params = PlanRequestParameters(self.robot)
         params.planning_pipeline = "pilz_industrial_motion_planner"
         params.planner_id = "LIN"
-        params.max_velocity_scaling_factor = 0.05
-        params.max_acceleration_scaling_factor = 0.04
+        params.max_velocity_scaling_factor = 0.12
+        params.max_acceleration_scaling_factor = 0.12
+        params.planning_time = 2.0
+        return params
+
+    def _make_lin_slow_params(self) -> PlanRequestParameters:
+        # LIN profile for the worst near-singularity zone (high-Z, z >= singular_z,
+        # near full vertical reach). The unstack 3m extraction spiked a wrist
+        # joint to 256 deg/s (> 225 limit) at the old 0.2 scale. 0.08 puts that
+        # worst case at ~102 deg/s (45% of the 225 limit, 2.2x headroom). Used
+        # for the high pick descend/lift and the high place extra-lift.
+        params = PlanRequestParameters(self.robot)
+        params.planning_pipeline = "pilz_industrial_motion_planner"
+        params.planner_id = "LIN"
+        params.max_velocity_scaling_factor = 0.08
+        params.max_acceleration_scaling_factor = 0.06
         params.planning_time = 2.0
         return params
 
@@ -232,12 +265,17 @@ class CupStackRuntime:
         lin: bool = False,
         strict: bool = False,
         slow: bool = False,
+        fast: bool = False,
     ) -> bool:
         """Plan and execute a pose move.
 
         ``slow`` selects the reduced-velocity LIN profile (lin_slow_params) for
         near-singularity high-Z moves so joint velocity stays under the limit.
         Only affects LIN moves (PTP already respects joint velocity limits).
+
+        ``fast`` opts a free-space, non-contact segment into the raised
+        staging/travel profile (ptp_fast_params / lin_fast_params — see
+        docs/speed_limits.md). ``slow`` always wins over ``fast``.
         """
 
         cx, cy, cz = clamp_workspace(x, y, z, self.workspace, self.logger)
@@ -259,9 +297,14 @@ class CupStackRuntime:
         )
 
         if lin:
-            plan_params = self.lin_slow_params if slow else self.lin_params
+            if slow:
+                plan_params = self.lin_slow_params
+            elif fast:
+                plan_params = self.lin_fast_params
+            else:
+                plan_params = self.lin_params
         else:
-            plan_params = self.ptp_params
+            plan_params = self.ptp_fast_params if fast else self.ptp_params
         plan_result = self.arm.plan(parameters=plan_params)
         if not plan_result and lin and not strict:
             self.logger.warn("LIN planning failed; retrying with PTP")
