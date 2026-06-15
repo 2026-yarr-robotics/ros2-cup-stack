@@ -32,6 +32,11 @@ VEL_GUARD_FRAC = 0.9
 # Beyond this time-stretch factor a plan is too near-singular to re-time
 # usefully -> reject it instead of executing an absurdly slow move.
 VEL_MAX_STRETCH = 6.0
+# Max wrist (joint_6) travel allowed for OMPL plans, so the planner takes the
+# NEAREST IK solution instead of a ~180° wrist wrap (the spin spikes joint
+# velocity -> alarm 1908). 135° comfortably allows the genuine HOME<->grip
+# swing (~90°) while blocking the 180° symmetric-flip / wrap solution.
+WRIST_NEAREST_TOL = math.radians(135)
 
 
 class CupStackRuntime:
@@ -308,9 +313,23 @@ class CupStackRuntime:
             return True
 
         # Stage 2: descend to the exact HOME joint configuration.
+        # Bound joint_6 to the nearest solution so OMPL does not plan a ~180°
+        # wrist wrap on the way to HOME (the spin spikes joint velocity ->
+        # alarm 1908 / red light right after a place). Retry unconstrained if
+        # the bounded plan fails (a genuine large reconfig still gets home).
         self.arm.set_start_state_to_current_state()
         self.arm.set_goal_state(robot_state=home_state)
+        self.arm.set_path_constraints(
+            self._joint_rotation_constraints(wrist_tolerance=WRIST_NEAREST_TOL)
+        )
         plan_result = self.arm.plan(parameters=self.ompl_params)
+        self.arm.set_path_constraints(Constraints())
+        if not plan_result:
+            self.logger.warn(
+                "HOME (wrist-bounded) planning failed; retrying unconstrained")
+            self.arm.set_start_state_to_current_state()
+            self.arm.set_goal_state(robot_state=home_state)
+            plan_result = self.arm.plan(parameters=self.ompl_params)
         if not plan_result:
             self.logger.error("HOME planning failed")
             return False
@@ -397,7 +416,8 @@ class CupStackRuntime:
             # PTP (or LIN→PTP) all failed — last resort: OMPL
             # joint rotation constraint 로 한바퀴 회전 경로 차단
             self.logger.warn("Pilz planning failed; retrying with OMPL (joint-bounded)")
-            constraints = self._joint_rotation_constraints()
+            constraints = self._joint_rotation_constraints(
+                wrist_tolerance=WRIST_NEAREST_TOL)
             self.arm.set_path_constraints(constraints)
             self.arm.set_start_state_to_current_state()
             self.arm.set_goal_state(
@@ -430,13 +450,19 @@ class CupStackRuntime:
         return True
 
     def _joint_rotation_constraints(
-        self, tolerance: float = math.pi
+        self,
+        tolerance: float = math.pi,
+        wrist_tolerance: float | None = None,
     ) -> Constraints:
         """현재 joint 위치 기준 ±tolerance 이내로 제한하는 path constraint.
 
         OMPL fallback 시 적용해 한바퀴(360°) 회전 경로를 차단.
         tolerance 기본값 π(180°) → 각 관절이 현재 위치에서
         최대 반 바퀴 이내로만 이동 가능.
+
+        ``wrist_tolerance`` 가 주어지면 joint_6 에만 더 좁은 한계를 적용해
+        손목이 180° wrap(먼 IK 해)로 도는 것을 막고 최근접 해를 고정한다.
+        나머지 관절은 ``tolerance`` 를 그대로 사용한다.
         """
         monitor = self.robot.get_planning_scene_monitor()
         with monitor.read_only() as scene:
@@ -451,8 +477,13 @@ class CupStackRuntime:
             jc = JointConstraint()
             jc.joint_name = f"joint_{i}"
             jc.position = float(pos)
-            jc.tolerance_above = tolerance
-            jc.tolerance_below = tolerance
+            tol = (
+                wrist_tolerance
+                if (wrist_tolerance is not None and i == 6)
+                else tolerance
+            )
+            jc.tolerance_above = tol
+            jc.tolerance_below = tol
             jc.weight = 1.0
             c.joint_constraints.append(jc)
         return c

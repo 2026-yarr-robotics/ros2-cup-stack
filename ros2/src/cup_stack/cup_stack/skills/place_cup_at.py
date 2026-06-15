@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from cup_stack.skills.base import PickSpec, RobotIO, Skill
-from cup_stack.skills.config import DOWN_ORI, SkillStackConfig
+from cup_stack.skills.config import SkillStackConfig
 from cup_stack.skills.geometry import make_twist_orientation
 
 
@@ -39,12 +39,21 @@ class PlaceCupAtSkill(Skill):
         robot: RobotIO,
         place: PlaceSpec,
         config: SkillStackConfig | None = None,
+        grip_twist_deg: float = 0.0,
     ) -> None:
         self.robot = robot
         self.place = place
         self.config = config or SkillStackConfig()
         self.logger = robot.logger
         self.name = place.name or "place_cup_at"
+        # Yaw twist (deg) of the gripper-down grip orientation about the
+        # vertical. 0.0 = the plain down orientation (DOWN_ORI ==
+        # make_twist_orientation(0)). Callers set this to hold the wrist (J6)
+        # at the same yaw as the joint HOME pose ([0,0,90,0,90,90], J6=90°),
+        # so the wrist does not swing ~90° between HOME and every pick/place.
+        # The place's small settle twist (place_twist_deg) is applied on top
+        # of this base, so the relative place choreography is unchanged.
+        self.grip_twist_deg = float(grip_twist_deg)
 
     def describe(self) -> str:
         return (
@@ -76,9 +85,13 @@ class PlaceCupAtSkill(Skill):
         log = self.logger
         log.info(self.describe())
 
-        pick_ori = pick.ori or DOWN_ORI
-        half_twist = make_twist_orientation(cfg.place_twist_deg / 2.0)
-        full_twist = make_twist_orientation(cfg.place_twist_deg)
+        # Base every orientation on the grip twist so the wrist holds a single
+        # yaw through pick → travel → place (no mid-carry 90° swing). twist=0
+        # reproduces the original DOWN_ORI base exactly.
+        base = self.grip_twist_deg
+        pick_ori = pick.ori or make_twist_orientation(base)
+        half_twist = make_twist_orientation(base + cfg.place_twist_deg / 2.0)
+        full_twist = make_twist_orientation(base + cfg.place_twist_deg)
 
         # Command the gripper OPEN up front (non-blocking — it is on a separate
         # Modbus link from the arm) so it opens *while* the arm travels to the

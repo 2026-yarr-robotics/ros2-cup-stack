@@ -297,6 +297,15 @@ class PyramidStepRequest(BaseModel):
     place_z: float
     slot: str = ""
     ori: dict | None = None
+    # Yaw twist (deg) of the gripper-down grip orientation. Default 0.0 keeps
+    # the plain down orientation. The server sends 90.0 for unstack so the
+    # wrist stays at the HOME J6 yaw and never swings ~90° per cup.
+    grip_twist_deg: float = 0.0
+    # Return the arm to the joint HOME after placing. Default True (build needs
+    # it so the exo camera can verify the slot). The server sends False for the
+    # intermediate cups of an unstack sequence and True only on the last, so
+    # the arm homes once at the end instead of per cup.
+    home: bool = True
 
 
 class SkillResponse(BaseModel):
@@ -552,7 +561,9 @@ def skill_pyramid_step(req: PyramidStepRequest) -> SkillResponse:
                 x=req.place_x, y=req.place_y, z=req.place_z,
                 name=req.slot or "pyramid_step",
             )
-            skill = PlaceCupAtSkill(_runtime, place)
+            skill = PlaceCupAtSkill(
+                _runtime, place, grip_twist_deg=req.grip_twist_deg,
+            )
             ok = skill.execute(pick, on_placed=placed.set)
             outcome["ok"] = ok
             # After a successful place, return the arm to the exact joint HOME
@@ -565,7 +576,12 @@ def skill_pyramid_step(req: PyramidStepRequest) -> SkillResponse:
             # orientation that broke the hand-eye viewing angle. Best-effort:
             # a home failure is logged but still reported as a successful
             # place.
-            if ok and not _runtime.try_move_home():
+            #
+            # ``req.home`` is False for the intermediate cups of an unstack
+            # sequence: the arm keeps its grip yaw and stays low between cups
+            # (one HOME at the end instead of six) — far faster and no per-cup
+            # wrist round-trip. Unstack does not need the per-cup slot verify.
+            if ok and req.home and not _runtime.try_move_home():
                 _runtime.logger.warn("post-place move_home failed (continuing)")
         except Exception as exc:  # noqa: BLE001 - report via response
             outcome["error"] = str(exc)
@@ -587,7 +603,7 @@ def skill_pyramid_step(req: PyramidStepRequest) -> SkillResponse:
     # over localhost, not the Cloudflare tunnel (which 504s past ~60s).
     finished.wait()
     err = f" error={outcome['error']}" if outcome["error"] else ""
-    suffix = " (placed + homed)" if outcome["ok"] else err
+    suffix = (" (placed + homed)" if req.home else " (placed)") if outcome["ok"] else err
     return SkillResponse(
         success=outcome["ok"], skill="pyramid",
         detail=f"{detail}{suffix}",
