@@ -97,6 +97,17 @@ def generate_launch_description():
                 default_value="nan",
                 description="NaN이 아니면 인식 yaw 무시하고 강제 값 사용",
             ),
+            DeclareLaunchArgument(
+                "place_cup_tilt_deg",
+                default_value="8.0",
+                description="place 모드 cup tilt(deg). 서버 API가 :=값 으로 전달 → "
+                            "inner stand_fallen_cup.launch.py 로 forward.",
+            ),
+            DeclareLaunchArgument(
+                "place_plus_y_cup_tilt_deg",
+                default_value="8.0",
+                description="place 모드 +Y auto_swing cup tilt(deg). inner launch 로 forward.",
+            ),
             dsr_moveit_controller_spawner,
             GroupAction(
                 [
@@ -113,6 +124,12 @@ def generate_launch_description():
                             "sim": LaunchConfiguration("sim"),
                             "cup_yaw_override_deg": LaunchConfiguration(
                                 "cup_yaw_override_deg"
+                            ),
+                            "place_cup_tilt_deg": LaunchConfiguration(
+                                "place_cup_tilt_deg"
+                            ),
+                            "place_plus_y_cup_tilt_deg": LaunchConfiguration(
+                                "place_plus_y_cup_tilt_deg"
                             ),
                             # MoveItPy는 launch namespace를 못 받으므로 노드가
                             # name_space + __ns remap을 직접 넘기도록 전달.
