@@ -71,6 +71,12 @@ class SkillStackConfig:
     layer_height: float = 0.093
     place_twist_deg: float = 10.0
     open_sleep_sec: float = 0.8
+    # Residual settle floor after the pick approach when the gripper OPEN was
+    # already commanded up front (overlapped with the approach travel). Small —
+    # the approach normally exceeds the gripper's open time, so this only guards
+    # the case of a very short approach. Replaces the full open_sleep_sec freeze
+    # at the pick top (see PlaceCupAtSkill).
+    open_settle_sec: float = 0.2
     grip_sleep_sec: float = 1.5
     release_sleep_sec: float = 1.0
     home_sleep_sec: float = 0.5

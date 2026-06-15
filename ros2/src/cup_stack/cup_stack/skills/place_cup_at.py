@@ -80,6 +80,14 @@ class PlaceCupAtSkill(Skill):
         half_twist = make_twist_orientation(cfg.place_twist_deg / 2.0)
         full_twist = make_twist_orientation(cfg.place_twist_deg)
 
+        # Command the gripper OPEN up front (non-blocking — it is on a separate
+        # Modbus link from the arm) so it opens *while* the arm travels to the
+        # pick approach, instead of freezing at the pick top for the full open
+        # dwell. The gripper is normally already open from the previous cup's
+        # release; this just re-asserts it. A short settle floor after the
+        # approach (step [2]) guarantees it is fully open before the descend.
+        r.try_open_gripper(0.0)
+
         # ── Pick ─────────────────────────────────────────────────────
         # Lateral approach to the pick must clear any cups standing at the pick
         # site. For high picks (unstacking a pyramid's upper tiers — e.g. 3m at
@@ -119,8 +127,8 @@ class PlaceCupAtSkill(Skill):
                 fast=True,
             ):
                 return False
-        log.info("  [2] gripper OPEN")
-        r.try_open_gripper(cfg.open_sleep_sec)
+        log.info("  [2] gripper OPEN settle")
+        r.try_open_gripper(cfg.open_settle_sec)  # floor; open already overlapped approach
         log.info(f"  [3] pick descend -> z={pick.z:.3f}")
         if not r.try_move_to_pose(
             pick.x, pick.y, pick.z, cfg.safe_z_min, ori=pick_ori, lin=True,
