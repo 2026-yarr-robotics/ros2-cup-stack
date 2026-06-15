@@ -15,6 +15,25 @@ from .geometry import clamp_workspace, clamp_z
 from .onrobot import RG
 
 
+# Per-joint max velocity (rad/s), mirroring
+# dsr_moveit_config_m0609/config/joint_limits.yaml. Pilz LIN times trajectories
+# from the CARTESIAN limits and does NOT clamp these joint velocities, so near a
+# singularity a LIN move can command joint velocities far above the hardware
+# limit (observed wrist 323 deg/s vs 225 limit -> driver alarm 1908, level-3
+# emergency / red light). _clamp_joint_velocity re-times any such plan before it
+# reaches the controller.
+JOINT_VEL_LIMITS = {
+    "joint_1": 2.618, "joint_2": 2.618, "joint_3": 3.14,
+    "joint_4": 3.927, "joint_5": 3.927, "joint_6": 3.927,
+}
+# Target peak joint velocity as a fraction of the hardware limit (the safety
+# controller trips at the limit, so keep margin).
+VEL_GUARD_FRAC = 0.9
+# Beyond this time-stretch factor a plan is too near-singular to re-time
+# usefully -> reject it instead of executing an absurdly slow move.
+VEL_MAX_STRETCH = 6.0
+
+
 class CupStackRuntime:
     """Owns robot and gripper resources shared by cup stacking tasks."""
 
@@ -149,6 +168,61 @@ class CupStackRuntime:
         params.planning_time = 2.0
         return params
 
+    def _clamp_joint_velocity(
+        self, trajectory, guard: float = VEL_GUARD_FRAC
+    ) -> bool:
+        """Re-time a plan so no joint velocity exceeds ``guard`` x its limit.
+
+        Pilz LIN ignores joint velocity limits near singularities, so a planned
+        trajectory can command joint velocities above the hardware limit, which
+        trips the driver's alarm 1908 (level-3 emergency / red light) mid-motion.
+        Uniformly time-stretch the trajectory (path unchanged, just slower; accel
+        scales by 1/factor^2) so the peak joint velocity lands at ``guard`` x
+        limit. No-op when already within limits.
+
+        Returns True if safe to execute (within limits or re-timed); False if the
+        overshoot is so large (near-true-singularity) that re-timing is
+        impractical -> caller must NOT execute it.
+        """
+        msg = trajectory.get_robot_trajectory_msg()
+        jt = msg.joint_trajectory
+        if not jt.points:
+            return True
+        limits = [JOINT_VEL_LIMITS.get(n) for n in jt.joint_names]
+        peak = 0.0
+        for pt in jt.points:
+            for v, lim in zip(pt.velocities, limits):
+                if lim:
+                    peak = max(peak, abs(v) / lim)
+        if peak == 0.0 or peak <= guard:
+            return True
+        factor = peak / guard
+        if factor > VEL_MAX_STRETCH:
+            self.logger.warn(
+                f"plan peak joint vel {peak:.2f}x limit "
+                f"(re-time x{factor:.1f} too large; near-singular) -> reject"
+            )
+            return False
+        for pt in jt.points:
+            d = (pt.time_from_start.sec
+                 + pt.time_from_start.nanosec * 1e-9) * factor
+            pt.time_from_start.sec = int(d)
+            pt.time_from_start.nanosec = int(round((d - int(d)) * 1e9))
+            pt.velocities = [v / factor for v in pt.velocities]
+            if pt.accelerations:
+                pt.accelerations = [a / (factor * factor)
+                                    for a in pt.accelerations]
+        ref = RobotState(self.robot_model)
+        ref.set_joint_group_positions(
+            self.motion.group_name, list(jt.points[0].positions))
+        ref.update()
+        trajectory.set_robot_trajectory_msg(ref, msg)
+        self.logger.info(
+            f"joint-vel guard: peak {peak:.2f}x limit -> time x{factor:.2f} "
+            f"(peak now ~{guard:.2f}x limit)"
+        )
+        return True
+
     def try_move_home(self, z_offset_m: float = 0.0, x_offset_m: float = 0.0) -> bool:
         """Plan and execute the configured HOME joint state.
 
@@ -241,6 +315,11 @@ class CupStackRuntime:
             self.logger.error("HOME planning failed")
             return False
 
+        if not self._clamp_joint_velocity(plan_result.trajectory):
+            self.logger.error(
+                "HOME trajectory exceeds joint velocity limits; aborting")
+            return False
+
         exec_result = self.robot.execute(
             group_name=self.motion.group_name,
             robot_trajectory=plan_result.trajectory,
@@ -329,6 +408,15 @@ class CupStackRuntime:
             self.arm.set_path_constraints(Constraints())  # 반드시 초기화
         if not plan_result:
             self.logger.error("Planning failed")
+            return False
+
+        # Guard: never execute a trajectory that exceeds joint velocity limits
+        # (Pilz LIN can near a singularity -> driver alarm 1908 / red light).
+        if not self._clamp_joint_velocity(plan_result.trajectory):
+            self.logger.error(
+                "planned trajectory exceeds joint velocity limits and is too "
+                "near-singular to re-time safely; aborting move (not executed)"
+            )
             return False
 
         exec_result = self.robot.execute(
