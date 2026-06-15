@@ -8,7 +8,6 @@ Endpoints
 ---------
 GET  /             -- pick frontend (HTML)
 GET  /status       -- liveness, busy, and cup_grip_z_offset
-POST /stop         -- interrupt the in-flight skill and return to HOME
 POST /skill/pick   -- pick a cup; accepts gripper Z or cup-top Z
 POST /skill/pyramid -- run the full 6-cup pyramid sequence
 POST /skill/scan   -- launch the existing 2-direction scan node
@@ -24,10 +23,9 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 
 try:
-    from dsr_msgs2.srv import GetRobotState, MoveStop
+    from dsr_msgs2.srv import GetRobotState
 except ImportError:  # Doosan stack absent (e.g. pure-sim build)
     GetRobotState = None
-    MoveStop = None
 
 try:
     import uvicorn
@@ -318,16 +316,6 @@ class SkillResponse(BaseModel):
     detail: str = ""
 
 
-class StopResponse(BaseModel):
-    """Response for POST /stop (interrupt the in-flight skill + HOME)."""
-
-    success: bool
-    skill: str = "stop"
-    interrupted: bool = False
-    homed: bool = False
-    detail: str = ""
-
-
 # ---------------------------------------------------------------------------
 # FastAPI app — _runtime and _cup_grip_z_offset injected before uvicorn starts
 # ---------------------------------------------------------------------------
@@ -411,57 +399,6 @@ def _wait_robot_standby(timeout_s: float = _STANDBY_TIMEOUT_S) -> bool:
         return False
 
 
-# ── Interrupt / quick-stop ─────────────────────────────────────────────────
-# DRCF-level quick stop of the active motion (dsr_msgs2/srv/MoveStop), used by
-# POST /stop alongside MoveItPy's trajectory_execution_manager.stop_execution()
-# so the in-flight skill halts immediately at both the MoveIt and driver layers.
-_MOVE_STOP_SRV = "/dsr01/motion/move_stop"
-_MOVE_STOP_QUICK = 1  # MoveStop.stop_mode: DR_QSTOP (quick stop, category 2)
-# How long POST /stop waits for the interrupted skill worker to drop the busy
-# lock before it gives up on the collision-aware HOME (MoveItPy is single-owner,
-# so HOME must not plan while the aborted skill is still inside execute()).
-_STOP_LOCK_FREE_TIMEOUT_S = 15.0
-_move_stop_client = None
-
-
-def _quick_stop(stop_mode: int = _MOVE_STOP_QUICK) -> bool:
-    """Best-effort DRCF quick-stop of the active motion (never raises).
-
-    Returns True when MoveStop reported success.  False when the Doosan
-    stack is absent (sim), the service is unavailable, or the call timed
-    out.  Safe to call from a FastAPI worker thread: the node is spun on
-    the main thread, so the call_async future completes without spinning.
-    """
-    global _move_stop_client
-    if MoveStop is None or _runtime is None:
-        return False
-    node = _runtime.node
-    try:
-        if _move_stop_client is None:
-            _move_stop_client = node.create_client(MoveStop, _MOVE_STOP_SRV)
-        client = _move_stop_client
-        if not client.service_is_ready() and not client.wait_for_service(
-            timeout_sec=0.5
-        ):
-            node.get_logger().warn(
-                f"{_MOVE_STOP_SRV} unavailable; skipping quick-stop"
-            )
-            return False
-        req = MoveStop.Request()
-        req.stop_mode = int(stop_mode)
-        future = client.call_async(req)
-        done = threading.Event()
-        future.add_done_callback(lambda _f: done.set())
-        if not done.wait(timeout=2.0):
-            future.cancel()
-            return False
-        resp = future.result()
-        return bool(resp is not None and resp.success)
-    except Exception as exc:  # noqa: BLE001 - quick-stop must never raise
-        node.get_logger().warn(f"quick-stop failed: {exc}")
-        return False
-
-
 def _check_busy() -> None:
     if not _lock.acquire(blocking=False):
         raise HTTPException(
@@ -501,76 +438,6 @@ def status() -> dict:
         "pick_z_base": _pick_z_base,
         "nest_inc": _nest_inc,
     }
-
-
-@app.post("/stop", response_model=StopResponse)
-def skill_stop(home: bool = True) -> StopResponse:
-    """Interrupt the in-flight skill and (optionally) return to HOME.
-
-    Unlike the skill endpoints this is **not** gated by the busy lock — it is
-    meant to run *while* a skill holds it.  FastAPI serves sync endpoints from
-    a threadpool, so this executes in a separate worker even while the skill's
-    request thread is blocked.
-
-    Sequence:
-
-    1. Abort the active motion at both layers — MoveItPy
-       ``trajectory_execution_manager.stop_execution()`` (so the worker's
-       blocking ``robot.execute()`` returns and the skill bails on its next
-       step check) and a DRCF ``MoveStop`` quick-stop for immediacy.
-    2. Wait for the interrupted skill to drop the busy lock.
-    3. Take the lock (so no new skill races in), wait for STANDBY (servoj_rt
-       leaves the DRCF in JOINT_SERVO), then plan a collision-aware return to
-       the joint HOME via the same ``try_move_home`` used after every place.
-
-    The gripper is left as-is: if a cup was grasped it is carried HOME rather
-    than dropped mid-air.  ``home=false`` interrupts without the HOME move.
-    """
-    if _runtime is None:
-        raise HTTPException(
-            status_code=503, detail="skill_api runtime not ready"
-        )
-    log = _runtime.logger
-
-    # 1. Abort the active trajectory: MoveIt cancel + DRCF quick-stop.
-    interrupted = False
-    try:
-        _runtime.robot.get_trajectory_execution_manager().stop_execution()
-        interrupted = True
-    except Exception as exc:  # noqa: BLE001 - fall back to the DRCF stop
-        log.warn(f"stop_execution failed: {exc}")
-    if _quick_stop():
-        interrupted = True
-
-    # 2. Wait for the interrupted skill worker to release the busy lock.
-    deadline = time.monotonic() + _STOP_LOCK_FREE_TIMEOUT_S
-    while _lock.locked() and time.monotonic() < deadline:
-        time.sleep(0.1)
-
-    # 3. Hold the lock so nothing starts a new skill while we home.
-    got = _lock.acquire(timeout=2.0)
-    try:
-        if not got:
-            return StopResponse(
-                success=interrupted, interrupted=interrupted, homed=False,
-                detail="skill still running (busy lock held); HOME skipped",
-            )
-        if not home:
-            return StopResponse(
-                success=interrupted, interrupted=interrupted, homed=False,
-                detail="interrupted; HOME skipped (home=false)",
-            )
-        _wait_robot_standby()
-        homed = _runtime.try_move_home()
-        return StopResponse(
-            success=interrupted and homed,
-            interrupted=interrupted, homed=homed,
-            detail="interrupted + homed" if homed
-            else "interrupted; HOME move failed (recover may be needed)",
-        )
-    finally:
-        if got:
-            _lock.release()
 
 
 def _resolve_pick_z(req: "PickRequest") -> tuple[float, str]:
