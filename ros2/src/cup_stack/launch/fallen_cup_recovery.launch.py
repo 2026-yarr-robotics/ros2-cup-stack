@@ -108,6 +108,46 @@ def generate_launch_description():
                 default_value="8.0",
                 description="place 모드 +Y auto_swing cup tilt(deg). inner launch 로 forward.",
             ),
+            # ── 작업영역 컵 회피 / PLACE 위치 (inner launch 로 forward) ──
+            #   회피 끄고 실험: avoid_upright_cups:=false (정상컵 궤적회피 OFF),
+            #   place_x/place_y 지정(단일컵 고정 PLACE → 스마트 회피선택 OFF) 또는
+            #   place_in_place:=true(멀티컵 제자리 → 스마트 회피선택 OFF),
+            #   pyramid_avoid:=false (피라미드 회피 OFF).
+            DeclareLaunchArgument(
+                "avoid_upright_cups", default_value="true",
+                description="false 면 정상(세워진) 컵 궤적 충돌회피(실린더 등록) OFF",
+            ),
+            DeclareLaunchArgument(
+                "pyramid_avoid", default_value="true",
+                description="false 면 피라미드 영역 회피 OFF",
+            ),
+            DeclareLaunchArgument(
+                "place_in_place", default_value="false",
+                description="true 면 멀티컵에서 제자리 세우기(스마트 PLACE 선택 OFF)",
+            ),
+            DeclareLaunchArgument(
+                "place_x", default_value="nan",
+                description="단일컵 PLACE X 고정(지정 시 스마트 선택 OFF). nan=자동",
+            ),
+            DeclareLaunchArgument(
+                "place_y", default_value="nan",
+                description="단일컵 PLACE Y 고정(지정 시 스마트 선택 OFF). nan=자동",
+            ),
+            DeclareLaunchArgument(
+                "descend_min_z", default_value="nan",
+                description="grasp 하강 flange(link_6) 최저 z(m) — 바닥 충돌 방지 하드 "
+                            "플로어. nan=테이블 레벨 자동. TCP 최저=이값−0.20.",
+            ),
+            DeclareLaunchArgument(
+                "place_spot_candidates",
+                default_value="0.30:0.20,0.30:0.15,0.30:0.10,0.30:0.05,0.30:0.00,"
+                              "0.30:-0.05,0.30:-0.10,0.30:-0.15,0.30:-0.20",
+                description="빈자리 후보 'x:y,...' (컵 Y측 가장자리부터 검사). ±0.20 기본.",
+            ),
+            DeclareLaunchArgument(
+                "place_spot_avoid_radius_m", default_value="0.09",
+                description="후보를 '점유'로 볼 회피 반경(m).",
+            ),
             dsr_moveit_controller_spawner,
             GroupAction(
                 [
@@ -130,6 +170,21 @@ def generate_launch_description():
                             ),
                             "place_plus_y_cup_tilt_deg": LaunchConfiguration(
                                 "place_plus_y_cup_tilt_deg"
+                            ),
+                            # 작업영역 컵 회피 / PLACE 위치 (회피 끄기·튜닝용).
+                            "avoid_upright_cups": LaunchConfiguration(
+                                "avoid_upright_cups"
+                            ),
+                            "pyramid_avoid": LaunchConfiguration("pyramid_avoid"),
+                            "place_in_place": LaunchConfiguration("place_in_place"),
+                            "place_x": LaunchConfiguration("place_x"),
+                            "place_y": LaunchConfiguration("place_y"),
+                            "descend_min_z": LaunchConfiguration("descend_min_z"),
+                            "place_spot_candidates": LaunchConfiguration(
+                                "place_spot_candidates"
+                            ),
+                            "place_spot_avoid_radius_m": LaunchConfiguration(
+                                "place_spot_avoid_radius_m"
                             ),
                             # MoveItPy는 launch namespace를 못 받으므로 노드가
                             # name_space + __ns remap을 직접 넘기도록 전달.
