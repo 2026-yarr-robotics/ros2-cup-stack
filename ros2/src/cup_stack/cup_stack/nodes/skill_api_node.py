@@ -308,6 +308,13 @@ class PyramidStepRequest(BaseModel):
     # intermediate cups of an unstack sequence and True only on the last, so
     # the arm homes once at the end instead of per cup.
     home: bool = True
+    # Cross at the maximum safe altitude (travel_z_max) regardless of the place
+    # height. The server sends True for unstack: a cup is lifted out of a slot
+    # that always has same-tier neighbours standing right beside it (e.g. 1m/1l
+    # beside 1r), so any traverse below the workspace ceiling risks grazing
+    # them. Build leaves this False — its source nest has no such neighbours, so
+    # it crosses at the lower (faster) place-relative height.
+    full_clear: bool = False
 
 
 class SkillResponse(BaseModel):
@@ -573,6 +580,37 @@ def skill_stop(home: bool = True) -> StopResponse:
             _lock.release()
 
 
+@app.post("/home", response_model=StopResponse)
+def skill_home() -> StopResponse:
+    """Return to the joint HOME — a bare trigger for the SAME ``try_move_home``
+    the robot runs after every place.
+
+    Unlike :func:`skill_stop` there is **no** interrupt and **no** quick-stop —
+    it simply homes. It is gated by the busy lock: if a skill is running it
+    refuses (use ``/stop`` to abort a running skill). Intended for the agent's
+    pick-fail HOME recovery, where no skill is in flight and no cup is held.
+    """
+    if _runtime is None:
+        raise HTTPException(
+            status_code=503, detail="skill_api runtime not ready"
+        )
+    got = _lock.acquire(timeout=2.0)
+    if not got:
+        return StopResponse(
+            success=False, skill="home", interrupted=False, homed=False,
+            detail="skill running (busy lock held); HOME refused — use /stop",
+        )
+    try:
+        _wait_robot_standby()
+        homed = _runtime.try_move_home()
+        return StopResponse(
+            success=homed, skill="home", interrupted=False, homed=homed,
+            detail="homed" if homed else "HOME move failed",
+        )
+    finally:
+        _lock.release()
+
+
 def _resolve_pick_z(req: "PickRequest") -> tuple[float, str]:
     """Pick precedence: ``z`` > ``cup_top_z`` > ``nested_count``."""
 
@@ -696,6 +734,7 @@ def skill_pyramid_step(req: PyramidStepRequest) -> SkillResponse:
             )
             skill = PlaceCupAtSkill(
                 _runtime, place, grip_twist_deg=req.grip_twist_deg,
+                full_clear=req.full_clear,
             )
             ok = skill.execute(pick, on_placed=placed.set)
             outcome["ok"] = ok

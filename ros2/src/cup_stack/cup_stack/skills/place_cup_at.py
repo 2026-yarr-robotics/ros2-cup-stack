@@ -40,12 +40,20 @@ class PlaceCupAtSkill(Skill):
         place: PlaceSpec,
         config: SkillStackConfig | None = None,
         grip_twist_deg: float = 0.0,
+        full_clear: bool = False,
     ) -> None:
         self.robot = robot
         self.place = place
         self.config = config or SkillStackConfig()
         self.logger = robot.logger
         self.name = place.name or "place_cup_at"
+        # Unstack: cross at the max safe altitude (travel_z_max) instead of a
+        # place-relative height. A cup picked out of a pyramid slot always has
+        # same-tier neighbours standing right beside it (e.g. 1m/1l beside 1r),
+        # at the pick height — any lower traverse risks the held cup grazing
+        # them. Lifting fully to the ceiling first, then crossing, clears them
+        # unconditionally. Build leaves this False (no source-side neighbours).
+        self.full_clear = bool(full_clear)
         # Yaw twist (deg) of the gripper-down grip orientation about the
         # vertical. 0.0 = the plain down orientation (DOWN_ORI ==
         # make_twist_orientation(0)). Callers set this to hold the wrist (J6)
@@ -181,6 +189,12 @@ class PlaceCupAtSkill(Skill):
         travel_z = min(travel_z, cfg.travel_z_max)
         # Never travel below the support layer the cup will be placed onto.
         travel_z = max(travel_z, self.place.z + cfg.travel_clearance)
+        # Unstack (full_clear): the obstacle is the SOURCE pyramid we are tearing
+        # down, not the (low) destination nest — and every slot has same-tier
+        # neighbours right beside it. Ignore the place-relative height and cross
+        # at the workspace ceiling so the held cup clears them on every cup.
+        if self.full_clear:
+            travel_z = cfg.travel_z_max
 
         # [5] lift the picked cup clear of the pick site. [5] and [5b] share
         # the pick XY and form a colinear vertical run, so when the traverse
@@ -208,13 +222,20 @@ class PlaceCupAtSkill(Skill):
                 fast=True,
             ):
                 return False
+        # Unstack crosses as a straight LIN at constant Z: it holds altitude
+        # over the cups below, so the held cup never descends toward a neighbour
+        # mid-traverse (a PTP bows the joint path + slants down toward the
+        # place). Mirrors the pick-side [1]; the slow profile keeps joint
+        # velocity within limits near the singular zone. Gated on full_clear so
+        # the build path keeps its tuned PTP cross byte-for-byte (no regression).
+        high_cross = self.full_clear and travel_z >= cfg.singular_z
         log.info(
             f"  [6] target XY move ({self.place.x:.3f},{self.place.y:.3f}) "
-            f"@ z={travel_z:.3f}"
+            f"@ z={travel_z:.3f}{' LIN' if high_cross else ''}"
         )
         if not r.try_move_to_pose(
             self.place.x, self.place.y, travel_z, cfg.safe_z_min,
-            fast=True,
+            lin=high_cross, slow=high_cross, fast=not high_cross,
         ):
             return False
 
