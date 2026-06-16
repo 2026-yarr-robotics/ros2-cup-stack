@@ -88,14 +88,27 @@ fi
 #      no-op'd, leaving the servo loop on SCHED_OTHER (the red-light root cause).
 rt_apply() {
     local pid="$1"
-    chrt -f -p "$RT_PRIORITY" "$pid" 2>/dev/null \
-        || sudo -n chrt -f -p "$RT_PRIORITY" "$pid" 2>/dev/null || true
+    # -a = ALL threads. ros2_control_node runs its servo/read loop in a WORKER
+    # thread, not the main thread, so `chrt -p` (no -a) promotes only the main
+    # thread and leaves the loop on SCHED_OTHER — jitter persists. Observed:
+    # 34/36 threads stayed SCHED_OTHER, joint_state/TF stalled up to 2.5s.
+    chrt -a -f -p "$RT_PRIORITY" "$pid" 2>/dev/null \
+        || sudo -n chrt -a -f -p "$RT_PRIORITY" "$pid" 2>/dev/null || true
     taskset -acp "$RT_CPUS" "$pid" >/dev/null 2>&1 \
         || sudo -n taskset -acp "$RT_CPUS" "$pid" >/dev/null 2>&1 || true
 }
 
-# True only when $1 is actually on SCHED_FIFO.
-rt_verify() { chrt -p "$1" 2>/dev/null | grep -q 'SCHED_FIFO'; }
+# True only when EVERY thread of $1 is on SCHED_FIFO. Checking just the main
+# thread (the old behaviour) reported OK while the servo loop worker stayed on
+# SCHED_OTHER — the silent gap that left the loop jittering.
+rt_verify() {
+    local t tid
+    for t in /proc/"$1"/task/*/; do
+        tid=$(basename "$t")
+        chrt -p "$tid" 2>/dev/null | grep -q 'SCHED_FIFO' || return 1
+    done
+    return 0
+}
 
 # Warn before launch if we cannot get RT at all (the usual silent-no-op setup).
 rt_preflight() {
