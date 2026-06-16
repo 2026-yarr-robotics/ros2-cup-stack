@@ -10,19 +10,16 @@ import math
 import numpy as np
 
 
-def make_twist_orientation(angle_deg: float) -> dict[str, float]:
-    """Return the downward-facing quaternion with a yaw twist applied."""
+def matrix_to_quaternion(rotation) -> dict[str, float]:
+    """Convert a rotation matrix to a ``{x,y,z,w}`` quaternion.
 
-    angle = math.radians(angle_deg)
-    cosine = math.cos(angle)
-    sine = math.sin(angle)
-    rotation = np.array(
-        [
-            [-cosine, sine, 0.0],
-            [sine, cosine, 0.0],
-            [0.0, 0.0, -1.0],
-        ]
-    )
+    Accepts a 3x3 matrix or the upper-left of a 4x4 transform. Inverse of
+    the matrix build in :func:`make_twist_orientation`; lets a caller hold
+    the *current* EE orientation (read as a transform matrix) without
+    recomputing a yaw angle.
+    """
+
+    rotation = np.asarray(rotation, dtype=float)[:3, :3]
     trace = rotation[0, 0] + rotation[1, 1] + rotation[2, 2]
 
     if trace > 0:
@@ -65,3 +62,19 @@ def make_twist_orientation(angle_deg: float) -> dict[str, float]:
         "z": float(qz),
         "w": float(qw),
     }
+
+
+def make_twist_orientation(angle_deg: float) -> dict[str, float]:
+    """Return the downward-facing quaternion with a yaw twist applied."""
+
+    angle = math.radians(angle_deg)
+    cosine = math.cos(angle)
+    sine = math.sin(angle)
+    rotation = np.array(
+        [
+            [-cosine, sine, 0.0],
+            [sine, cosine, 0.0],
+            [0.0, 0.0, -1.0],
+        ]
+    )
+    return matrix_to_quaternion(rotation)

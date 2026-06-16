@@ -12,7 +12,7 @@ from typing import Callable
 
 from cup_stack.skills.base import PickSpec, RobotIO, Skill
 from cup_stack.skills.config import SkillStackConfig
-from cup_stack.skills.geometry import make_twist_orientation
+from cup_stack.skills.geometry import make_twist_orientation, matrix_to_quaternion
 
 
 @dataclass(frozen=True)
@@ -116,16 +116,30 @@ class PlaceCupAtSkill(Skill):
             # place to the clearance height first [0], then traverse to the pick
             # at that constant Z [1]. Straight LIN holds Z; slow profile keeps
             # joint velocity within limits near the singular zone.
-            cur_x, cur_y = r.current_ee_xy()
-            cur_z = float(r.current_ee_matrix()[2, 3])
+            #
+            # The wrist (J6) yaw at the start (HOME) differs ~90° from the pick
+            # orientation. Do NOT spend that ~90° turn here in [0] as a
+            # near-stationary spin (XY fixed, Z barely rising): hold the current
+            # incoming wrist yaw through the lift, then fold the reorientation
+            # into the [1] XY traverse so J6 turns *while* the arm is moving
+            # laterally — no stopped-rotation dead time. (Later unstack cups
+            # already arrive near the pick orientation, so [1]'s twist is small;
+            # only the first cup, from HOME, carries the full swing.) Both moves
+            # stay LIN+slow at the clearance Z, and try_move_to_pose's
+            # joint-velocity guard re-times the rotating traverse if it nears the
+            # limit — overlapping the turn never exceeds it.
+            cur_T = r.current_ee_matrix()
+            cur_x, cur_y = float(cur_T[0, 3]), float(cur_T[1, 3])
+            cur_z = float(cur_T[2, 3])
+            cur_ori = matrix_to_quaternion(cur_T)
             if cur_z < pick_approach_z - 1e-3:
-                log.info(f"  [0] ascend in place -> z={pick_approach_z:.3f}")
+                log.info(f"  [0] ascend in place (hold wrist) -> z={pick_approach_z:.3f}")
                 if not r.try_move_to_pose(
                     cur_x, cur_y, pick_approach_z, cfg.safe_z_min,
-                    ori=pick_ori, lin=True, slow=True,
+                    ori=cur_ori, lin=True, slow=True,
                 ):
                     log.warn("  [0] ascend-in-place failed; continuing")
-            log.info(f"  [1] pick XY traverse @ z={pick_approach_z:.3f}")
+            log.info(f"  [1] pick XY traverse + reorient @ z={pick_approach_z:.3f}")
             if not r.try_move_to_pose(
                 pick.x, pick.y, pick_approach_z, cfg.safe_z_min,
                 ori=pick_ori, lin=True, slow=True,
