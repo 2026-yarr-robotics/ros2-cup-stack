@@ -26,10 +26,14 @@
 # This also reduces the dt-window drops in write() (dt outside [0.3,1.5]*period
 # returns OK without sending a command), so fewer servoj_rt waypoints are lost.
 #
-# Steps 1-3 need sudo. Each is best-effort: if it fails (no sudo / no cpupower)
-# the bringup still runs, just without the RT stabilization. For the strongest
-# result install a PREEMPT_RT kernel and isolate RT_CPUS via the isolcpus= boot
-# arg; see docs/.
+# The governor step (1) needs sudo. The SCHED_FIFO + core-pin steps (2-3) run
+# WITHOUT sudo once the host has RT limits — run ./setup_rt.sh once, then
+# re-login. Promotion is best-effort, BUT step 2 now VERIFIES it actually took
+# (reads back chrt -p) and errors loudly otherwise; set RT_REQUIRED=1 to make a
+# missing RT promotion abort the bringup. Silently running on SCHED_OTHER is what
+# let the servo loop jitter into a velocity-spike safety stop (red light). For
+# the strongest result install a PREEMPT_RT kernel and isolate RT_CPUS via the
+# isolcpus= boot arg. See docs/realtime.md.
 
 set -e
 
@@ -75,24 +79,67 @@ if [ "$SET_GOVERNOR" = "1" ] && command -v cpupower >/dev/null 2>&1; then
         || echo "[RT][WARN] governor set failed (need sudo / cpupower); continuing"
 fi
 
-# 3 (deferred). Promote the control loop to RT once ros2_control_node is up.
+# --- RT helpers ------------------------------------------------------------
+# Apply SCHED_FIFO + CPU affinity to $1 WITHOUT ever blocking on a password:
+#   1. plain `chrt`/`taskset` succeed on our own process once the user has an
+#      RLIMIT_RTPRIO grant (run ./setup_rt.sh once + re-login); no sudo needed.
+#   2. `sudo -n` is a non-interactive fallback, so a backgrounded promote_rt
+#      never hangs on a sudo prompt — the old `sudo chrt` did, and silently
+#      no-op'd, leaving the servo loop on SCHED_OTHER (the red-light root cause).
+rt_apply() {
+    local pid="$1"
+    chrt -f -p "$RT_PRIORITY" "$pid" 2>/dev/null \
+        || sudo -n chrt -f -p "$RT_PRIORITY" "$pid" 2>/dev/null || true
+    taskset -acp "$RT_CPUS" "$pid" >/dev/null 2>&1 \
+        || sudo -n taskset -acp "$RT_CPUS" "$pid" >/dev/null 2>&1 || true
+}
+
+# True only when $1 is actually on SCHED_FIFO.
+rt_verify() { chrt -p "$1" 2>/dev/null | grep -q 'SCHED_FIFO'; }
+
+# Warn before launch if we cannot get RT at all (the usual silent-no-op setup).
+rt_preflight() {
+    local soft
+    soft=$(ulimit -r 2>/dev/null || echo 0)
+    if [ "$soft" != "unlimited" ] && [ "${soft:-0}" -lt "$RT_PRIORITY" ] \
+       && [ "$(id -u)" -ne 0 ] && ! sudo -n true 2>/dev/null; then
+        echo "[RT][WARN] RLIMIT_RTPRIO=${soft} < ${RT_PRIORITY} and no passwordless sudo:"
+        echo "[RT][WARN]   ros2_control_node cannot reach SCHED_FIFO; the servo loop will"
+        echo "[RT][WARN]   jitter (risk: velocity-spike safety stop / red light)."
+        echo "[RT][WARN]   Fix once:  ${SCRIPT_DIR}/setup_rt.sh   then log out and back in."
+    fi
+}
+
+# 3 (deferred). Promote the control loop to RT once ros2_control_node is up,
+# then VERIFY — a silent failure here is what trips the velocity-spike red light.
 promote_rt() {
-    local pid=""
-    local i
+    local pid="" i pol
     for i in $(seq 1 60); do
         pid=$(pgrep -f ros2_control_node | head -n1 || true)
         if [ -n "$pid" ]; then
             echo "[RT] ros2_control_node pid=$pid -> SCHED_FIFO:${RT_PRIORITY} cpus=${RT_CPUS}"
-            sudo chrt -f -p "$RT_PRIORITY" "$pid" \
-                || echo "[RT][WARN] chrt failed (need sudo / RT limits); continuing"
-            sudo taskset -acp "$RT_CPUS" "$pid" \
-                || echo "[RT][WARN] taskset failed; continuing"
+            rt_apply "$pid"
+            if rt_verify "$pid"; then
+                echo "[RT] OK: $(chrt -p "$pid" 2>/dev/null | tr '\n' ' ')"
+            else
+                pol=$(chrt -p "$pid" 2>/dev/null | sed -n 's/.*policy: //p' | head -n1)
+                echo "[RT][ERROR] ros2_control_node is NOT on SCHED_FIFO (policy=${pol:-unknown})."
+                echo "[RT][ERROR]   Servo loop will jitter -> velocity spikes -> Doosan safety"
+                echo "[RT][ERROR]   stop (red light / servo-off). Grant RT limits once:"
+                echo "[RT][ERROR]   ${SCRIPT_DIR}/setup_rt.sh   then log out and back in."
+                if [ "${RT_REQUIRED:-0}" = "1" ]; then
+                    echo "[RT][FATAL] RT_REQUIRED=1: stopping bringup."
+                    kill -INT "$LAUNCH_PID" 2>/dev/null || true
+                fi
+            fi
             return 0
         fi
         sleep 1
     done
     echo "[RT][WARN] ros2_control_node not found after 60s; RT promotion skipped"
 }
+
+rt_preflight
 
 echo "[REAL] DSR ${MODEL} MoveIt bringup (mode=real host=${ROBOT_HOST} port=${ROBOT_PORT})"
 
