@@ -61,21 +61,13 @@ def generate_launch_description():
         [FindPackageShare("cup_stack"), "config", "moveit_py.yaml"]
     )
 
-    # dsr_bringup2_rviz.launch.py spawns only dsr_controller2 (Doosan SDK-direct,
-    # claims no ros2_control command interfaces). MoveIt needs a standard
-    # FollowJointTrajectory controller, so activate dsr_moveit_controller against
-    # the namespaced controller_manager.  Doosan's own demo.launch.py spawns
-    # both controllers side-by-side, so coexistence is the intended config.
-    dsr_moveit_controller_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=[
-            "dsr_moveit_controller",
-            "--controller-manager",
-            "/dsr01/controller_manager",
-        ],
-        output="screen",
-    )
+    # dsr_bringup2_moveit.launch.py (the bringup used in Term1) already loads,
+    # configures and activates dsr_moveit_controller on /dsr01. Spawning it again
+    # here makes the controller_manager spawner fail the configure transition on
+    # an already-active controller and die with exit 1. We therefore do NOT spawn
+    # it here. If you instead bring up with dsr_bringup2_rviz.launch.py (which
+    # spawns only dsr_controller2), add a controller_manager spawner for
+    # dsr_moveit_controller back here.
 
     return LaunchDescription(
         [
@@ -87,7 +79,6 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("pick_z_base", default_value="0.313"),
             DeclareLaunchArgument("nest_inc", default_value="0.012"),
-            dsr_moveit_controller_spawner,
             Node(
                 package="cup_stack",
                 executable="skill_api_server",
