@@ -27,7 +27,7 @@ from launch.substitutions import LaunchConfiguration
 def generate_launch_description():
     yolo_share = get_package_share_directory("speed_stack_yolo_seg")
     inner_launch = os.path.join(yolo_share, "launch", "fallen_cup_pose.launch.py")
-    default_weights = os.path.join(yolo_share, "weights", "best.pt")
+    default_weights = "/home/eunwoo/Projects/cup_stack/cup-stack-integration/ros2-depth-point-cloude/vision/yolo/sim_hand_best.pt"  # ⚠ SIM-LOCAL HARDCODE (sim_hand) — DO NOT COMMIT
 
     return LaunchDescription(
         [

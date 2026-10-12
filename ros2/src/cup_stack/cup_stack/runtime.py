@@ -1,6 +1,7 @@
 """Runtime adapters for MoveItPy and the RG gripper."""
 
 import math
+import os
 import time
 
 import numpy as np
@@ -12,7 +13,7 @@ from moveit_msgs.msg import Constraints, JointConstraint
 
 from .config import DOWN_ORI, GripperConfig, MotionConfig, WorkspaceConfig
 from .geometry import clamp_workspace, clamp_z
-from .onrobot import RG
+from .onrobot_sim import make_gripper
 
 
 # Per-joint max velocity (rad/s), mirroring
@@ -58,7 +59,7 @@ class CupStackRuntime:
         self.workspace = workspace_config or WorkspaceConfig()
 
         try:
-            self.gripper = RG(
+            self.gripper = make_gripper(
                 self.gripper_config.name,
                 self.gripper_config.toolcharger_ip,
                 self.gripper_config.toolcharger_port,
@@ -518,7 +519,14 @@ class CupStackRuntime:
         return True
 
     def try_grip_cup(self, sleep_sec: float) -> bool:
-        """Grip a cup with the configured width and force."""
+        """Grip a cup with the configured width and force.
+
+        With ``CUP_STACK_REQUIRE_GRIP`` set, the return reflects whether a cup
+        was actually grasped (sim: the gripper_bridge sticky-attach state; real:
+        the RG "grip detected" status bit) so the calling skill aborts an empty
+        grasp instead of carrying nothing and reporting a phantom place. Default
+        (unset) keeps the legacy always-true behaviour for the real rig.
+        """
 
         self.gripper.move_gripper(
             self.gripper_config.grip_width,
@@ -526,7 +534,21 @@ class CupStackRuntime:
         )
         time.sleep(sleep_sec)
         self.log_grip_status()
-        return True
+        if os.environ.get("CUP_STACK_REQUIRE_GRIP", "0").lower() not in (
+                "1", "true", "yes", "on"):
+            return True
+        # Confirm the grasp, polling a short window so a slightly-late grip
+        # signal (bridge publish cadence / settle gate) is not read as a miss.
+        deadline = time.monotonic() + 0.75
+        while True:
+            status = self.gripper.get_status()
+            if len(status) > 1 and status[1] == 1:
+                return True
+            if time.monotonic() >= deadline:
+                self.logger.warn(
+                    "      grip not confirmed (empty grasp) — aborting place")
+                return False
+            time.sleep(0.05)
 
     def try_release_cup(self, sleep_sec: float) -> bool:
         """Release a cup by opening the gripper."""

@@ -13,7 +13,7 @@ from rclpy.node import Node
 from std_msgs.msg import Float32
 
 from cup_stack.config import CupStackConfig, GripperConfig
-from cup_stack.onrobot import RG
+from cup_stack.onrobot_sim import make_gripper, sim_backend_enabled
 
 # Real-time width telemetry: the server subscribes to this and forwards it
 # to the dashboard. RG.get_width() already returns millimetres.
@@ -35,7 +35,7 @@ def main(args=None):
     cup_cfg = CupStackConfig()
 
     try:
-        gripper: RG | None = RG(
+        gripper = make_gripper(
             gripper_cfg.name,
             gripper_cfg.toolcharger_ip,
             gripper_cfg.toolcharger_port,
@@ -91,6 +91,22 @@ def main(args=None):
     # single-threaded executor serialises this with handle_gripper, so the
     # shared Modbus client needs no extra locking. Read failures (hardware
     # down / mid-motion) are skipped so the server's staleness check fires.
+    # Sim backend: the Isaac gripper_bridge already publishes /gripper/width —
+    # republishing here would duplicate the topic, so the timer is skipped.
+    if sim_backend_enabled():
+        node.get_logger().info(
+            f"sim gripper backend — {WIDTH_TOPIC} is published by Isaac, skipping width timer"
+        )
+        try:
+            rclpy.spin(node)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            svc.destroy()
+            node.destroy_node()
+            rclpy.shutdown()
+        return
+
     width_pub = node.create_publisher(Float32, WIDTH_TOPIC, 10)
     _read_warned = False
 

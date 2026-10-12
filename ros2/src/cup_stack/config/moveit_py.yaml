@@ -52,3 +52,17 @@
         max_velocity_scaling_factor: 1.0
         max_acceleration_scaling_factor: 1.0
         planning_time: 1.5
+
+    # The Doosan emulator keeps converging its joint_states for a few ms after
+    # the FollowJointTrajectory controller declares SUCCEEDED, so the next
+    # move's planned start can deviate ~0.02-0.03 rad from the measured state by
+    # execution time. MoveIt's default 0.01 rad start tolerance then rejects the
+    # trajectory ("Invalid Trajectory: start point deviates from current robot
+    # state more than 0.01"), aborting a pyramid_step *after* the grasp -> the
+    # executor returns HOME and retries, re-gripping the same cup (the "double
+    # pick"). 0.1 rad absorbs the sim settle lag; on real hardware the arm is
+    # already settled when the next move plans, so a looser bound never trips.
+    # This key overrides the MoveItConfigsBuilder default because moveit_py.yaml
+    # is loaded after moveit_config.to_dict() in skill_api.launch.py.
+    trajectory_execution:
+      allowed_start_tolerance: 0.1
